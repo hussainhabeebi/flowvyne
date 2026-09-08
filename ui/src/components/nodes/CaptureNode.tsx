@@ -1,5 +1,5 @@
 import { Handle, Position } from "reactflow";
-import { InputIcon } from "lucide-react";
+import { TextCursorInput } from "lucide-react";
 
 type Props = {
   data: { prompt: string; variable: string; validation?: string };
@@ -15,7 +15,7 @@ export function CaptureNode({ data, selected }: Props) {
     >
       <Handle type="target" position={Position.Top} className="!bg-emerald-500" />
       <div className="flex items-center gap-2 mb-2">
-        <InputIcon size={16} className="text-emerald-500 shrink-0" />
+        <TextCursorInput size={16} className="text-emerald-500 shrink-0" />
         <span className="text-xs font-semibold text-emerald-500 uppercase tracking-wide">Capture</span>
       </div>
       <p className="text-sm text-slate-700 mb-2 line-clamp-2">

@@ -1,4 +1,4 @@
-import { MessageSquare, List, InputIcon, GitBranch, CircleStop, Save, Play } from "lucide-react";
+import { MessageSquare, List, TextCursorInput, GitBranch, CircleStop, Save, Play } from "lucide-react";
 import { useFlowStore } from "../store/flowStore";
 
 type NodeType = "message" | "menu" | "capture" | "condition" | "end";
@@ -6,7 +6,7 @@ type NodeType = "message" | "menu" | "capture" | "condition" | "end";
 const NODE_DEFS: { type: NodeType; label: string; icon: React.ReactNode; color: string }[] = [
   { type: "message", label: "Message", icon: <MessageSquare size={15} />, color: "bg-brand-500" },
   { type: "menu", label: "Menu", icon: <List size={15} />, color: "bg-purple-500" },
-  { type: "capture", label: "Capture", icon: <InputIcon size={15} />, color: "bg-emerald-500" },
+  { type: "capture", label: "Capture", icon: <TextCursorInput size={15} />, color: "bg-emerald-500" },
   { type: "condition", label: "Condition", icon: <GitBranch size={15} />, color: "bg-amber-500" },
   { type: "end", label: "End", icon: <CircleStop size={15} />, color: "bg-rose-500" },
 ];
