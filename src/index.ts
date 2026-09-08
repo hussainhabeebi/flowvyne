@@ -6,6 +6,7 @@ import { flows } from "./api/flows";
 import { execute } from "./api/execute";
 import { templates } from "./api/templates";
 import { tenants } from "./api/tenants";
+import { settings } from "./api/settings";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -38,6 +39,7 @@ app.route("/handle", execute);
 app.route("/api/flows", flows);
 app.route("/api/templates", templates);
 app.route("/api/tenants", tenants);
+app.route("/api/settings", settings);
 
 // ── Legacy direct execute path (keep for backward compatibility) ──────────────
 app.route("/execute", execute);

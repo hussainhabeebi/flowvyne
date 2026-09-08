@@ -16,8 +16,6 @@ const ExecuteSchema = z.object({
   recent_history: z
     .array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() }))
     .optional(),
-  system_context: z.string().optional(), // tenant product/service info from Leadvyne
-  contact_name: z.string().optional(),   // who Leadvyne is talking to
 });
 
 // ── POST /execute — called from Leadvyne via Service Binding ──────────────
@@ -32,6 +30,21 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   if (!allowed) {
     return c.json({ handled: false, next_node: null, variables: body.variables });
   }
+
+  // 0b. Load tenant's AI context (set via Flowvyne's own settings UI, not from Leadvyne)
+  const tenantSettings = await c.env.DB.prepare(
+    "SELECT system_context FROM tenant_settings WHERE tenant_id = ?"
+  ).bind(body.tenant_id).first<{ system_context: string | null }>();
+
+  const input: ExecuteInput = {
+    tenant_id: body.tenant_id,
+    contact_id: body.contact_id,
+    message_text: body.message_text,
+    current_node: body.current_node,
+    variables: body.variables,
+    recent_history: body.recent_history,
+    system_context: tenantSettings?.system_context ?? undefined,
+  };
 
   // 1. Resolve active flow for tenant (by current_node or keyword trigger)
   let flowJson: FlowJSON | null = null;
@@ -52,21 +65,21 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
 
   if (!flowJson) {
     // No flow matched — answer with AI if system_context was provided, else fall through
-    return c.json(await aiOrFallback(c.env, body as ExecuteInput, null));
+    return c.json(await aiOrFallback(c.env, input, null));
   }
 
   // 2. Execute the flow
-  const result = executeFlow(flowJson, body as ExecuteInput);
+  const result = executeFlow(flowJson, input);
 
   if (result.kind === "ai_fallback") {
     // Mid-flow question that didn't match a node — answer with AI, keep same node so
     // the flow resumes correctly on the next message
-    return c.json(await aiOrFallback(c.env, body as ExecuteInput, body.current_node));
+    return c.json(await aiOrFallback(c.env, input, body.current_node));
   }
 
   // Auto-advance through silent nodes (condition chains, etc.) up to 10 hops
   if (result.kind === "reply" && !result.reply_text && !result.reply_buttons) {
-    const advanced = await advanceSilent(c.env, flowJson, result.next_node, body as ExecuteInput, result.variables);
+    const advanced = await advanceSilent(c.env, flowJson, result.next_node, input, result.variables);
     return c.json({ handled: true, ...advanced });
   }
 
@@ -86,7 +99,7 @@ execute.post("/simulate", zValidator("json", ExecuteSchema), async (c) => {
   const flowJson = await getFlowById(c.env, body.tenant_id, flowIdHeader);
   if (!flowJson) return c.json({ error: "flow not found" }, 404);
 
-  const result = executeFlow(flowJson, body as ExecuteInput);
+  const result = executeFlow(flowJson, input);
   return c.json(result);
 });
 
