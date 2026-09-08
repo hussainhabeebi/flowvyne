@@ -23,6 +23,14 @@ const ExecuteSchema = z.object({
 execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   const body = c.req.valid("json");
 
+  // 0. Check tenant is opted in to Flowvyne
+  const allowed = await c.env.DB.prepare(
+    "SELECT 1 FROM flow_enabled_tenants WHERE tenant_id = ? LIMIT 1"
+  ).bind(body.tenant_id).first();
+  if (!allowed) {
+    return c.json({ handled: false, next_node: null, variables: body.variables });
+  }
+
   // 1. Resolve active flow for tenant (by current_node or keyword trigger)
   let flowJson: FlowJSON | null = null;
 
@@ -44,6 +52,7 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
     // No flow matched — tell the plugin loader to fall through to the next plugin / AI
     return c.json({ handled: false, next_node: null, variables: body.variables });
   }
+
 
   // 2. Execute the flow
   const result = executeFlow(flowJson, body as ExecuteInput);

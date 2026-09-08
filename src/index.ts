@@ -5,6 +5,7 @@ import type { Env } from "./types";
 import { flows } from "./api/flows";
 import { execute } from "./api/execute";
 import { templates } from "./api/templates";
+import { tenants } from "./api/tenants";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -36,6 +37,7 @@ app.route("/handle", execute);
 // ── REST API (called by the builder UI + proxied by Leadvyne's plugin router) ──
 app.route("/api/flows", flows);
 app.route("/api/templates", templates);
+app.route("/api/tenants", tenants);
 
 // ── Legacy direct execute path (keep for backward compatibility) ──────────────
 app.route("/execute", execute);
