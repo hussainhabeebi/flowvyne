@@ -1,0 +1,8 @@
+# ── Add this block to Leadvyne's wrangler.toml ───────────────────────────
+# Place it alongside your other [[services]] entries (if any).
+
+[[services]]
+binding = "FLOWVYNE"
+service  = "flowvyne"
+# Both Workers must be deployed under the same Cloudflare account.
+# No auth token needed — Service Bindings are account-scoped.
