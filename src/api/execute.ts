@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import type { Env, FlowJSON, ExecuteInput } from "../types";
 import { executeFlow } from "../executor";
 import { callAI } from "../ai-fallback";
+import { detectIntent } from "../intent";
 
 const execute = new Hono<{ Bindings: Env }>();
 
@@ -64,7 +65,15 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   }
 
   if (!flowJson) {
-    // No flow matched — answer with AI if system_context was provided, else fall through
+    // No flow matched — classify intent to decide who should answer
+    const intent = await detectIntent(c.env, input.message_text);
+
+    if (intent === "product_query") {
+      // Specific product/price/catalog question → Leadvyne's industry module answers
+      return c.json({ handled: false, next_node: null, variables: input.variables });
+    }
+
+    // FLOW intent with no matching trigger, or GENERAL → Flowvyne AI answers
     return c.json(await aiOrFallback(c.env, input, null));
   }
 
@@ -72,8 +81,22 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   const result = executeFlow(flowJson, input);
 
   if (result.kind === "ai_fallback") {
-    // Mid-flow question that didn't match a node — answer with AI, keep same node so
-    // the flow resumes correctly on the next message
+    // Mid-flow question that didn't match a node.
+    // Classify to decide: product query or general chat?
+    const intent = await detectIntent(c.env, input.message_text);
+
+    if (intent === "product_query" && !input.system_context) {
+      // No context stored — can't answer; stay on current node so flow resumes
+      return c.json({
+        handled: true,
+        kind: "reply",
+        reply_text: "I'll connect you with someone who can help with that. To continue, ",
+        next_node: body.current_node,
+        variables: input.variables,
+      });
+    }
+
+    // Answer with AI (system_context covers product details), resume flow after
     return c.json(await aiOrFallback(c.env, input, body.current_node));
   }
 
