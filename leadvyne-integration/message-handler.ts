@@ -81,7 +81,7 @@ export async function handleIncomingMessage(
   );
 
   if (!flowResp.ok) {
-    // Flowvyne failed — fall back to the existing AI path gracefully
+    // Flowvyne failed — fall back gracefully to the existing Leadvyne AI path
     console.error("Flowvyne error:", await flowResp.text());
     return existingAIPath(msg, env);
   }

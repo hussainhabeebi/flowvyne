@@ -17,7 +17,6 @@ binding = "AI"
 
 [vars]
 ENVIRONMENT = "production"
-# GEMINI_API_KEY set as a secret via: wrangler secret put GEMINI_API_KEY
 
 [[rules]]
 type = "ESModule"

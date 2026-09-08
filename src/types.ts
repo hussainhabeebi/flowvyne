@@ -113,6 +113,5 @@ export type FlowVersionRow = {
 export type Env = {
   DB: D1Database;
   AI: Ai;
-  GEMINI_API_KEY?: string;
   ENVIRONMENT: string;
 };

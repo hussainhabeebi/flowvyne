@@ -57,13 +57,9 @@ cd ui && npm install && npm run dev   # Vite on :5173 (proxies /api → :8787)
 Live conversations store a `flow_current_node` in Leadvyne's `conversations` table.
 When a new version is published, in-progress conversations continue on the version they started — node ids are stable within a version.
 
-## Secrets
+## AI
 
-```bash
-wrangler secret put GEMINI_API_KEY
-```
-
-If not set, Workers AI (`@cf/meta/llama-3.1-8b-instruct`) is used instead.
+Uses Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct`) — no external API key required.
 
 ## Leadvyne integration
 
