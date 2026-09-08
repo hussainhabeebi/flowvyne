@@ -9,7 +9,7 @@ command = "npm run build:ui"
 [[d1_databases]]
 binding = "DB"
 database_name = "flowvyne-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "4422ae79-e1ec-4ab4-83ac-0d546f4b584f"
 migrations_dir = "migrations"
 
 [ai]
