@@ -16,6 +16,8 @@ const ExecuteSchema = z.object({
   recent_history: z
     .array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() }))
     .optional(),
+  system_context: z.string().optional(), // tenant product/service info from Leadvyne
+  contact_name: z.string().optional(),   // who Leadvyne is talking to
 });
 
 // ── POST /execute — called from Leadvyne via Service Binding ──────────────
@@ -49,17 +51,17 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   }
 
   if (!flowJson) {
-    // No flow matched — tell the plugin loader to fall through to the next plugin / AI
-    return c.json({ handled: false, next_node: null, variables: body.variables });
+    // No flow matched — answer with AI if system_context was provided, else fall through
+    return c.json(await aiOrFallback(c.env, body as ExecuteInput, null));
   }
-
 
   // 2. Execute the flow
   const result = executeFlow(flowJson, body as ExecuteInput);
 
   if (result.kind === "ai_fallback") {
-    // Node not found mid-flow — fall through so Leadvyne can try the next plugin or AI
-    return c.json({ handled: false, next_node: null, variables: body.variables });
+    // Mid-flow question that didn't match a node — answer with AI, keep same node so
+    // the flow resumes correctly on the next message
+    return c.json(await aiOrFallback(c.env, body as ExecuteInput, body.current_node));
   }
 
   // Auto-advance through silent nodes (condition chains, etc.) up to 10 hops
@@ -182,6 +184,36 @@ async function advanceSilent(
   }
 
   return result;
+}
+
+// ── AI-or-fallthrough helper ──────────────────────────────────────────────
+// If Leadvyne injected system_context, answer with Workers AI.
+// Otherwise return handled:false so Leadvyne's own AI/plugin chain takes over.
+
+async function aiOrFallback(
+  env: Env,
+  input: ExecuteInput,
+  preserveNode: string | null  // keep current_node so flow resumes after AI answer
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
+  if (!input.system_context) {
+    // No context provided — we can't give a useful answer; let Leadvyne handle it
+    return { handled: false, next_node: null, variables: input.variables };
+  }
+
+  const reply = await callAI(env, input,
+    preserveNode
+      ? "The user is mid-flow. Answer their question, then the flow will resume."
+      : undefined
+  );
+
+  return {
+    handled: true,
+    kind: "reply",
+    reply_text: reply,
+    next_node: preserveNode,  // null = no active flow; non-null = resume flow next turn
+    variables: input.variables,
+  };
 }
 
 export { execute };

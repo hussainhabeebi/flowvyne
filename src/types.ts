@@ -74,6 +74,9 @@ export type ExecuteInput = {
   current_node: string | null; // null = new conversation, needs keyword lookup
   variables: Record<string, string>;
   recent_history?: Array<{ role: "user" | "assistant"; text: string }>;
+  // Leadvyne injects these so Flowvyne's AI can answer tenant-specific questions
+  system_context?: string;  // e.g. "Acme Dental sells implants at AED 3,500..."
+  contact_name?: string;    // e.g. "Sara"
 };
 
 export type ExecuteOutput =
