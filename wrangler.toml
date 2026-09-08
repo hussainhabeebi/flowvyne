@@ -1,0 +1,32 @@
+name = "flowvyne"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "npm run build:ui"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flowvyne-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[ai]
+binding = "AI"
+
+[vars]
+ENVIRONMENT = "production"
+# GEMINI_API_KEY set as a secret via: wrangler secret put GEMINI_API_KEY
+
+[[rules]]
+type = "ESModule"
+globs = ["**/*.ts"]
+
+[site]
+bucket = "./ui/dist"
+
+# Leadvyne can call Flowvyne via Service Binding — add this to leadvyne's wrangler.toml:
+# [[services]]
+# binding = "FLOWVYNE"
+# service = "flowvyne"

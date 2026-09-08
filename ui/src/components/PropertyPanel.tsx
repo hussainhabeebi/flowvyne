@@ -1,0 +1,263 @@
+import { useFlowStore } from "../store/flowStore";
+import { Trash2, X } from "lucide-react";
+
+export function PropertyPanel() {
+  const { nodes, selectedNodeId, selectNode, updateNodeData, deleteNode } = useFlowStore();
+
+  if (!selectedNodeId) return null;
+
+  const node = nodes.find((n) => n.id === selectedNodeId);
+  if (!node) return null;
+
+  const update = (patch: Record<string, unknown>) => updateNodeData(node.id, patch);
+
+  return (
+    <div className="absolute right-0 top-0 h-full w-80 bg-white border-l border-slate-200 shadow-xl z-10 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <span className="font-semibold text-slate-800 capitalize">{node.type} Node</span>
+        <button onClick={() => selectNode(null)} className="text-slate-400 hover:text-slate-600">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* Fields */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {node.type === "message" && <MessageFields data={node.data} update={update} />}
+        {node.type === "menu" && <MenuFields data={node.data} update={update} />}
+        {node.type === "capture" && <CaptureFields data={node.data} update={update} />}
+        {node.type === "condition" && <ConditionFields data={node.data} update={update} />}
+        {node.type === "end" && <p className="text-sm text-slate-500">End node has no settings.</p>}
+      </div>
+
+      {/* Delete */}
+      {node.type !== "end" && (
+        <div className="p-4 border-t border-slate-100">
+          <button
+            onClick={() => deleteNode(node.id)}
+            className="flex items-center gap-2 text-sm text-red-500 hover:text-red-700"
+          >
+            <Trash2 size={15} /> Delete node
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub-forms ─────────────────────────────────────────────────────────────
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <label className="block text-xs font-medium text-slate-600 mb-1">{children}</label>;
+}
+
+function Textarea({
+  value,
+  onChange,
+  rows = 3,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+}) {
+  return (
+    <textarea
+      rows={rows}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40 resize-none"
+    />
+  );
+}
+
+function Input({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <input
+      type="text"
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+    />
+  );
+}
+
+function MessageFields({
+  data,
+  update,
+}: {
+  data: { text: string };
+  update: (p: Record<string, unknown>) => void;
+}) {
+  return (
+    <div>
+      <Label>Message text (use {"{{variable}}"} for variables)</Label>
+      <Textarea value={data.text ?? ""} onChange={(v) => update({ text: v })} rows={5} />
+    </div>
+  );
+}
+
+type MenuOption = { label: string; value: string; next: string };
+
+function MenuFields({
+  data,
+  update,
+}: {
+  data: { text: string; options: MenuOption[]; fallback_text?: string };
+  update: (p: Record<string, unknown>) => void;
+}) {
+  const options: MenuOption[] = data.options ?? [];
+
+  const updateOption = (i: number, patch: Partial<MenuOption>) => {
+    const next = options.map((o, idx) => (idx === i ? { ...o, ...patch } : o));
+    update({ options: next });
+  };
+
+  const addOption = () =>
+    update({ options: [...options, { label: "", value: "", next: "" }] });
+
+  const removeOption = (i: number) =>
+    update({ options: options.filter((_, idx) => idx !== i) });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Menu prompt</Label>
+        <Textarea value={data.text ?? ""} onChange={(v) => update({ text: v })} />
+      </div>
+      <div>
+        <Label>Options</Label>
+        <div className="space-y-2">
+          {options.map((opt, i) => (
+            <div key={i} className="border border-slate-200 rounded-lg p-3 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-medium text-slate-500">Option {i + 1}</span>
+                <button onClick={() => removeOption(i)} className="text-red-400 hover:text-red-600">
+                  <X size={14} />
+                </button>
+              </div>
+              <Input
+                value={opt.label}
+                onChange={(v) => updateOption(i, { label: v })}
+                placeholder="Button label"
+              />
+              <Input
+                value={opt.value}
+                onChange={(v) => updateOption(i, { value: v })}
+                placeholder="Match value (e.g. yes)"
+              />
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={addOption}
+          className="mt-2 text-xs text-brand-500 hover:text-brand-700 font-medium"
+        >
+          + Add option
+        </button>
+      </div>
+      <div>
+        <Label>Fallback text (if no option matched)</Label>
+        <Input
+          value={data.fallback_text ?? ""}
+          onChange={(v) => update({ fallback_text: v })}
+          placeholder="Optional"
+        />
+      </div>
+    </div>
+  );
+}
+
+function CaptureFields({
+  data,
+  update,
+}: {
+  data: { prompt: string; variable: string; validation?: string; error_text?: string };
+  update: (p: Record<string, unknown>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Prompt (optional — shown before waiting for input)</Label>
+        <Textarea value={data.prompt ?? ""} onChange={(v) => update({ prompt: v })} />
+      </div>
+      <div>
+        <Label>Variable name (no braces)</Label>
+        <Input
+          value={data.variable ?? ""}
+          onChange={(v) => update({ variable: v.replace(/[^a-z0-9_]/gi, "_") })}
+          placeholder="e.g. email"
+        />
+      </div>
+      <div>
+        <Label>Validation</Label>
+        <select
+          value={data.validation ?? "none"}
+          onChange={(e) => update({ validation: e.target.value })}
+          className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+        >
+          <option value="none">None</option>
+          <option value="email">Email</option>
+          <option value="phone">Phone</option>
+          <option value="number">Number</option>
+        </select>
+      </div>
+      <div>
+        <Label>Validation error text</Label>
+        <Input
+          value={data.error_text ?? ""}
+          onChange={(v) => update({ error_text: v })}
+          placeholder="Optional custom error message"
+        />
+      </div>
+    </div>
+  );
+}
+
+function ConditionFields({
+  data,
+  update,
+}: {
+  data: { variable: string; operator: string; value: string };
+  update: (p: Record<string, unknown>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Variable name (no braces)</Label>
+        <Input
+          value={data.variable ?? ""}
+          onChange={(v) => update({ variable: v })}
+          placeholder="e.g. team_size"
+        />
+      </div>
+      <div>
+        <Label>Operator</Label>
+        <select
+          value={data.operator ?? "eq"}
+          onChange={(e) => update({ operator: e.target.value })}
+          className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+        >
+          <option value="eq">equals</option>
+          <option value="neq">not equals</option>
+          <option value="contains">contains</option>
+          <option value="starts_with">starts with</option>
+          <option value="gt">greater than</option>
+          <option value="lt">less than</option>
+        </select>
+      </div>
+      <div>
+        <Label>Value</Label>
+        <Input
+          value={data.value ?? ""}
+          onChange={(v) => update({ value: v })}
+          placeholder="e.g. large"
+        />
+      </div>
+      <p className="text-xs text-slate-400">
+        Connect the <span className="text-emerald-600 font-medium">true</span> handle (left) and{" "}
+        <span className="text-red-500 font-medium">false</span> handle (right) to the next nodes.
+      </p>
+    </div>
+  );
+}

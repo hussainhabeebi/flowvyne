@@ -1,0 +1,23 @@
+{
+  "name": "flowvyne",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "npm run build:ui && wrangler deploy",
+    "build:ui": "cd ui && npm run build",
+    "db:migrate": "wrangler d1 migrations apply flowvyne-db",
+    "db:seed": "wrangler d1 execute flowvyne-db --file=seed.sql",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
+    "typescript": "^5.5.4",
+    "wrangler": "^3.78.10"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.4.1",
+    "hono": "^4.6.3",
+    "zod": "^3.23.8"
+  }
+}
