@@ -41,41 +41,25 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   }
 
   if (!flowJson) {
-    // No flow matched — delegate entirely to AI
-    const aiText = await callAI(
-      c.env,
-      buildFreePrompt(body as ExecuteInput)
-    );
-    return c.json({
-      kind: "reply",
-      reply_text: aiText,
-      next_node: null,
-      variables: body.variables,
-    });
+    // No flow matched — tell the plugin loader to fall through to the next plugin / AI
+    return c.json({ handled: false, next_node: null, variables: body.variables });
   }
 
   // 2. Execute the flow
   const result = executeFlow(flowJson, body as ExecuteInput);
 
   if (result.kind === "ai_fallback") {
-    const aiText = await callAI(c.env, result.prompt_context);
-    return c.json({
-      kind: "reply",
-      reply_text: aiText,
-      next_node: null,
-      variables: body.variables,
-    });
+    // Node not found mid-flow — fall through so Leadvyne can try the next plugin or AI
+    return c.json({ handled: false, next_node: null, variables: body.variables });
   }
 
-  // If executor returned a message node (no reply_text), auto-advance
-  // through silent nodes (condition chains, etc.) up to 10 hops
+  // Auto-advance through silent nodes (condition chains, etc.) up to 10 hops
   if (result.kind === "reply" && !result.reply_text && !result.reply_buttons) {
-    return c.json(
-      await advanceSilent(c.env, flowJson, result.next_node, body as ExecuteInput, result.variables)
-    );
+    const advanced = await advanceSilent(c.env, flowJson, result.next_node, body as ExecuteInput, result.variables);
+    return c.json({ handled: true, ...advanced });
   }
 
-  return c.json(result);
+  return c.json({ handled: true, ...result });
 });
 
 // ── POST /simulate — test-run a flow without touching any real data ───────

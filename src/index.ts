@@ -12,28 +12,37 @@ app.use("*", logger());
 app.use(
   "/api/*",
   cors({
-    origin: (origin) => origin, // tighten in prod to specific UI origin
+    origin: (origin) => origin,
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "X-Tenant-Id", "X-Simulate-Flow-Id"],
   })
 );
 
-// ── Service Binding entry point (called by Leadvyne Worker) ───────────────
-// Leadvyne calls: env.FLOWVYNE.fetch(new Request("https://flowvyne/execute", { method: "POST", body: JSON.stringify(payload) }))
-app.route("/execute", execute);
+// ── Standard plugin contract endpoints (called by Leadvyne's plugin loader) ──
 
-// ── REST API (called by the builder UI) ───────────────────────────────────
+// GET /manifest — Leadvyne reads this to discover capabilities
+app.get("/manifest", (c) =>
+  c.json({
+    id: "flowvyne",
+    name: "Flowvyne",
+    version: "1.0.0",
+    capabilities: ["message_handler", "settings"],
+  })
+);
+
+// POST /handle — Leadvyne's plugin loader calls this for every incoming message
+app.route("/handle", execute);
+
+// ── REST API (called by the builder UI + proxied by Leadvyne's plugin router) ──
 app.route("/api/flows", flows);
 app.route("/api/templates", templates);
 
-// ── Health check ──────────────────────────────────────────────────────────
+// ── Legacy direct execute path (keep for backward compatibility) ──────────────
+app.route("/execute", execute);
+
+// ── Health check ──────────────────────────────────────────────────────────────
 app.get("/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
 
-// ── Serve builder UI (static assets via [site] bucket) ───────────────────
-// Requests not matched above fall through to Workers Sites static serving
-app.get("*", async (c) => {
-  // In local dev wrangler handles this; in prod the [site] bucket serves index.html
-  return c.text("Flowvyne — not found", 404);
-});
+app.get("*", (c) => c.text("Flowvyne — not found", 404));
 
 export default app;
