@@ -175,8 +175,4 @@ async function advanceSilent(
   return result;
 }
 
-function buildFreePrompt(input: ExecuteInput): string {
-  return `You are a helpful assistant.\nUser: ${input.message_text}`;
-}
-
 export { execute };

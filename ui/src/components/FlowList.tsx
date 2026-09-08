@@ -39,7 +39,7 @@ export function FlowList({ onOpen }: Props) {
     }
   };
 
-  const createFromTemplate = async (tplId: string, tplName: string) => {
+  const createFromTemplate = async (tplId: string, _tplName: string) => {
     setCreating(true);
     try {
       const tpl = await api.templates.get(tplId);

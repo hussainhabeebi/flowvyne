@@ -1,6 +1,6 @@
 import type { Node, Edge } from "reactflow";
 
-type FlowJSON = { start_node: string; nodes: object[] };
+type FlowJSON = { start_node: string; nodes: Record<string, unknown>[] };
 
 // Convert React Flow canvas state → Flowvyne flow_json (stored in D1)
 export function canvasToFlowJson(nodes: Node[], edges: Edge[]): FlowJSON {
@@ -51,7 +51,7 @@ export function flowJsonToCanvas(flowJson: FlowJSON): { nodes: Node[]; edges: Ed
   const edges: Edge[] = [];
   let x = 100;
 
-  for (const n of flowJson.nodes as Record<string, unknown>[]) {
+  for (const n of flowJson.nodes) {
     const type = n.type as string;
     const id = n.id as string;
     nodes.push({

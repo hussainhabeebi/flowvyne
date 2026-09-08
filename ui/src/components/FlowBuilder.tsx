@@ -56,7 +56,7 @@ export function FlowBuilder({ flowId, onBack }: Props) {
   useEffect(() => {
     api.flows.get(flowId).then((flow) => {
       const { nodes: n, edges: e } = flow.current_version
-        ? flowJsonToCanvas(flow.current_version.flow_json as { start_node: string; nodes: object[] })
+        ? flowJsonToCanvas(flow.current_version.flow_json as { start_node: string; nodes: Record<string, unknown>[] })
         : { nodes: [], edges: [] };
 
       loadFlow(
