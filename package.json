@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "npm run build:ui && wrangler deploy",
-    "build:ui": "cd ui && npm run build",
+    "build:ui": "cd ui && npm install && npm run build",
     "db:migrate": "wrangler d1 migrations apply flowvyne-db",
     "db:seed": "wrangler d1 execute flowvyne-db --file=seed.sql",
     "type-check": "tsc --noEmit"
