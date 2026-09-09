@@ -1,3 +1,5 @@
+const urlTenant = new URLSearchParams(window.location.search).get("tenant");
+if (urlTenant) localStorage.setItem("tenant_id", urlTenant);
 const TENANT_ID = localStorage.getItem("tenant_id") ?? "dev-tenant";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
