@@ -8,6 +8,11 @@ import { detectIntent } from "../intent";
 
 const execute = new Hono<{ Bindings: Env }>();
 
+// Words that restart the conversation regardless of current_node
+const RESET_KEYWORDS = new Set([
+  "hi", "hello", "hey", "start", "restart", "menu", "help", "begin",
+]);
+
 const ExecuteSchema = z.object({
   tenant_id: z.string(),
   contact_id: z.string(),
@@ -24,94 +29,107 @@ const ExecuteSchema = z.object({
 execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   const body = c.req.valid("json");
 
-  // 0. Check tenant is opted in to Flowvyne
-  const allowed = await c.env.DB.prepare(
-    "SELECT 1 FROM flow_enabled_tenants WHERE tenant_id = ? LIMIT 1"
-  ).bind(body.tenant_id).first();
-  if (!allowed) {
-    return c.json({ handled: false, next_node: null, variables: body.variables });
-  }
-
-  // 0b. Load tenant's AI context (set via Flowvyne's own settings UI, not from Leadvyne)
-  const tenantSettings = await c.env.DB.prepare(
-    "SELECT system_context FROM tenant_settings WHERE tenant_id = ?"
-  ).bind(body.tenant_id).first<{ system_context: string | null }>();
-
-  const input: ExecuteInput = {
+  // Minimal input — extended once tenant settings load (needed in catch scope)
+  let input: ExecuteInput = {
     tenant_id: body.tenant_id,
     contact_id: body.contact_id,
     message_text: body.message_text,
     current_node: body.current_node,
     variables: body.variables,
     recent_history: body.recent_history,
-    system_context: tenantSettings?.system_context ?? undefined,
   };
 
-  // 1. Resolve active flow for tenant (by current_node or keyword trigger)
-  let flowJson: FlowJSON | null = null;
-
-  if (body.current_node) {
-    // Conversation in progress — look up the flow this node belongs to
-    flowJson = await getFlowByNode(c.env, body.tenant_id, body.current_node);
-  }
-
-  if (!flowJson) {
-    // New conversation or node not found — try keyword match
-    flowJson = await getFlowByKeyword(
-      c.env,
-      body.tenant_id,
-      body.message_text
-    );
-  }
-
-  if (!flowJson) {
-    // No keyword match — fall back to the tenant's only active flow (greeting/default flow)
-    flowJson = await getDefaultFlow(c.env, body.tenant_id);
-  }
-
-  if (!flowJson) {
-    // No flow matched — classify intent to decide who should answer
-    const intent = await detectIntent(c.env, input.message_text);
-
-    if (intent === "product_query") {
-      // Specific product/price/catalog question → Leadvyne's industry module answers
-      return c.json({ handled: false, next_node: null, variables: input.variables });
+  try {
+    // 0. Check tenant is opted in to Flowvyne
+    const allowed = await c.env.DB.prepare(
+      "SELECT 1 FROM flow_enabled_tenants WHERE tenant_id = ? LIMIT 1"
+    ).bind(body.tenant_id).first();
+    if (!allowed) {
+      return c.json({ handled: false, next_node: null, variables: body.variables });
     }
 
-    // FLOW intent with no matching trigger, or GENERAL → Flowvyne AI answers
-    return c.json(await aiOrFallback(c.env, input, null));
-  }
+    // 0b. Load tenant's AI context (set via Flowvyne's own settings UI, not from Leadvyne)
+    const tenantSettings = await c.env.DB.prepare(
+      "SELECT system_context FROM tenant_settings WHERE tenant_id = ?"
+    ).bind(body.tenant_id).first<{ system_context: string | null }>();
 
-  // 2. Execute the flow
-  const result = executeFlow(flowJson, input);
+    input = { ...input, system_context: tenantSettings?.system_context ?? undefined };
 
-  if (result.kind === "ai_fallback") {
-    // Mid-flow question that didn't match a node.
-    // Classify to decide: product query or general chat?
-    const intent = await detectIntent(c.env, input.message_text);
+    // Reset keywords (hi, hello, start…) discard stale current_node and restart the flow
+    const isReset = RESET_KEYWORDS.has(body.message_text.trim().toLowerCase());
 
-    if (intent === "product_query" && !input.system_context) {
-      // No context stored — can't answer; stay on current node so flow resumes
-      return c.json({
-        handled: true,
-        kind: "reply",
-        reply_text: "I'll connect you with someone who can help with that. To continue, ",
-        next_node: body.current_node,
-        variables: input.variables,
-      });
+    // 1. Resolve active flow for tenant (by current_node or keyword trigger)
+    let flowJson: FlowJSON | null = null;
+
+    if (body.current_node && !isReset) {
+      // Conversation in progress — look up the flow this node belongs to
+      flowJson = await getFlowByNode(c.env, body.tenant_id, body.current_node);
     }
 
-    // Answer with AI (system_context covers product details), resume flow after
-    return c.json(await aiOrFallback(c.env, input, body.current_node));
-  }
+    if (!flowJson) {
+      // New conversation or node not found — try keyword match
+      flowJson = await getFlowByKeyword(c.env, body.tenant_id, body.message_text);
+    }
 
-  // Auto-advance through silent nodes (condition chains, etc.) up to 10 hops
-  if (result.kind === "reply" && !result.reply_text && !result.reply_buttons) {
-    const advanced = await advanceSilent(c.env, flowJson, result.next_node, input, result.variables);
-    return c.json({ handled: true, ...advanced });
-  }
+    if (!flowJson) {
+      // No keyword match — fall back to the tenant's only active flow (greeting/default flow)
+      flowJson = await getDefaultFlow(c.env, body.tenant_id);
+    }
 
-  return c.json({ handled: true, ...result });
+    if (!flowJson) {
+      // No flow matched — classify intent to decide who should answer
+      const intent = await detectIntent(c.env, input.message_text);
+
+      if (intent === "product_query") {
+        // Specific product/price/catalog question → Leadvyne's industry module answers
+        return c.json({ handled: false, next_node: null, variables: input.variables });
+      }
+
+      // FLOW intent with no matching trigger, or GENERAL → Flowvyne AI answers
+      return c.json(await aiOrFallback(c.env, input, null));
+    }
+
+    // 2. Execute the flow (reset means start from beginning, not current_node)
+    const execInput = isReset ? { ...input, current_node: null } : input;
+    const result = executeFlow(flowJson, execInput);
+
+    if (result.kind === "ai_fallback") {
+      // Mid-flow question that didn't match a node.
+      // Classify to decide: product query or general chat?
+      const intent = await detectIntent(c.env, input.message_text);
+
+      if (intent === "product_query" && !input.system_context) {
+        // No context stored — can't answer; stay on current node so flow resumes
+        return c.json({
+          handled: true,
+          kind: "reply",
+          reply_text: "I'll connect you with someone who can help with that. To continue, ",
+          next_node: body.current_node,
+          variables: input.variables,
+        });
+      }
+
+      // Answer with AI (system_context covers product details), resume flow after
+      return c.json(await aiOrFallback(c.env, input, isReset ? null : body.current_node));
+    }
+
+    // Auto-advance through silent nodes (condition chains, etc.) up to 10 hops
+    if (result.kind === "reply" && !result.reply_text && !result.reply_buttons) {
+      const advanced = await advanceSilent(c.env, flowJson, result.next_node, execInput, result.variables);
+      return c.json({ handled: true, ...advanced });
+    }
+
+    return c.json({ handled: true, ...result });
+
+  } catch (err) {
+    console.error("[flowvyne] execute error:", err);
+    // Any unexpected error — try AI, then give up gracefully
+    try {
+      return c.json(await aiOrFallback(c.env, input, null));
+    } catch {
+      return c.json({ handled: false, next_node: null, variables: body.variables });
+    }
+  }
 });
 
 // ── POST /simulate — test-run a flow without touching any real data ───────
