@@ -115,6 +115,16 @@ export function executeFlow(
     case "capture": {
       const trimmed = message_text.trim();
 
+      // No input yet (e.g. auto-advance after a menu selection) — show the prompt
+      if (!trimmed) {
+        return {
+          kind: "reply",
+          reply_text: interpolate(node.data.prompt, variables),
+          next_node: nodeId,
+          variables,
+        };
+      }
+
       if (!isValid(trimmed, node.data.validation)) {
         const errText =
           node.data.error_text ??
