@@ -11,6 +11,15 @@ tenants.get("/", async (c) => {
   return c.json(rows.results);
 });
 
+// GET /api/tenants/:id — check if a single tenant is enrolled
+tenants.get("/:id", async (c) => {
+  const row = await c.env.DB.prepare(
+    "SELECT tenant_id, enabled_at, note FROM flow_enabled_tenants WHERE tenant_id = ? LIMIT 1"
+  ).bind(c.req.param("id")).first<{ tenant_id: string; enabled_at: string; note: string | null }>();
+  if (!row) return c.json({ enabled: false }, 404);
+  return c.json({ enabled: true, ...row });
+});
+
 // POST /api/tenants — enable a tenant
 tenants.post("/", async (c) => {
   const body = await c.req.json<{ tenant_id: string; note?: string }>();
