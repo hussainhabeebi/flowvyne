@@ -22,8 +22,9 @@ ENVIRONMENT = "production"
 type = "ESModule"
 globs = ["**/*.ts"]
 
-[site]
-bucket = "./ui/dist"
+[assets]
+directory = "./ui/dist"
+html_handling = "single-page-application"
 
 # Leadvyne can call Flowvyne via Service Binding — add this to leadvyne's wrangler.toml:
 # [[services]]

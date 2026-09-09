@@ -47,6 +47,4 @@ app.route("/execute", execute);
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get("/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
 
-app.get("*", (c) => c.text("Flowvyne — not found", 404));
-
 export default app;
