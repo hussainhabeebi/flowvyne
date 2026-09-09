@@ -58,24 +58,30 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
     // Reset keywords (hi, hello, start…) discard stale current_node and restart the flow
     const isReset = RESET_KEYWORDS.has(body.message_text.trim().toLowerCase());
 
+    console.log(`[fv] tenant=${body.tenant_id} msg="${body.message_text}" current_node=${body.current_node} isReset=${isReset}`);
+
     // 1. Resolve active flow — keyword match always wins (explicit intent takes priority)
     let flowJson: FlowJSON | null = null;
 
     flowJson = await getFlowByKeyword(c.env, body.tenant_id, body.message_text);
+    console.log(`[fv] keyword match: ${flowJson ? "YES" : "no"}`);
 
     if (!flowJson && body.current_node && !isReset) {
       // Conversation in progress — look up the flow this node belongs to
       flowJson = await getFlowByNode(c.env, body.tenant_id, body.current_node);
+      console.log(`[fv] node match: ${flowJson ? "YES" : "no"}`);
     }
 
     if (!flowJson && isReset) {
       // Explicit greeting/restart with no keyword trigger — use greeting/default flow
       flowJson = await getDefaultFlow(c.env, body.tenant_id);
+      console.log(`[fv] default flow (reset): ${flowJson ? "YES" : "no"}`);
     }
 
     if (!flowJson) {
       // No flow matched — classify intent to decide who should answer
       const intent = await detectIntent(c.env, input.message_text);
+      console.log(`[fv] no flow → intent=${intent}`);
 
       if (intent === "product_query") {
         return c.json({ handled: false, next_node: null, variables: input.variables });
@@ -87,6 +93,7 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
     // 2. Execute the flow (reset means start from beginning, not current_node)
     const execInput = isReset ? { ...input, current_node: null } : input;
     const result = executeFlow(flowJson, execInput);
+    console.log(`[fv] flow result: kind=${result.kind} next_node=${result.kind === "end" || result.kind === "ai_fallback" ? "n/a" : (result as {next_node?:string|null}).next_node ?? "null"}`);
 
     if (result.kind === "end") {
       // Flow reached its end node — user's message should be handled as fresh input
