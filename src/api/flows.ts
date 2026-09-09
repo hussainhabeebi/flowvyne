@@ -135,7 +135,7 @@ flows.put("/:id/publish", zValidator("json", PublishSchema), async (c) => {
     ).bind(versionId, flowId, nextVersion, JSON.stringify(body.flow_json)),
 
     c.env.DB.prepare(
-      "UPDATE flows SET updated_at = datetime('now') WHERE id = ?"
+      "UPDATE flows SET is_active = 1, updated_at = datetime('now') WHERE id = ?"
     ).bind(flowId),
   ];
 

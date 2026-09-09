@@ -65,6 +65,11 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
   }
 
   if (!flowJson) {
+    // No keyword match — fall back to the tenant's only active flow (greeting/default flow)
+    flowJson = await getDefaultFlow(c.env, body.tenant_id);
+  }
+
+  if (!flowJson) {
     // No flow matched — classify intent to decide who should answer
     const intent = await detectIntent(c.env, input.message_text);
 
@@ -184,6 +189,25 @@ async function getFlowByKeyword(
   }
 
   return null;
+}
+
+async function getDefaultFlow(
+  env: Env,
+  tenantId: string
+): Promise<FlowJSON | null> {
+  // Returns the most-recently-updated active published flow for this tenant.
+  // Used when no keyword matches — so a single greeting/main-menu flow always triggers.
+  const row = await env.DB.prepare(`
+    SELECT fv.flow_json
+    FROM flow_versions fv
+    JOIN flows f ON f.id = fv.flow_id
+    WHERE f.tenant_id = ? AND f.is_active = 1 AND fv.published = 1
+    ORDER BY f.updated_at DESC, fv.version DESC LIMIT 1
+  `)
+    .bind(tenantId)
+    .first<{ flow_json: string }>();
+
+  return row ? (JSON.parse(row.flow_json) as FlowJSON) : null;
 }
 
 async function getFlowById(
