@@ -2,9 +2,10 @@ import { useState } from "react";
 import { FlowList } from "./components/FlowList";
 import { FlowBuilder } from "./components/FlowBuilder";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { GitBranch, Settings } from "lucide-react";
+import { TenantsPanel } from "./components/TenantsPanel";
+import { GitBranch, Settings, Users } from "lucide-react";
 
-type View = { page: "list" } | { page: "builder"; flowId: string } | { page: "settings" };
+type View = { page: "list" } | { page: "builder"; flowId: string } | { page: "settings" } | { page: "tenants" };
 
 export default function App() {
   const [view, setView] = useState<View>({ page: "list" });
@@ -38,6 +39,17 @@ export default function App() {
             Flows
           </button>
           <button
+            onClick={() => setView({ page: "tenants" })}
+            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg font-medium transition-all ${
+              view.page === "tenants"
+                ? "bg-brand-50 text-brand-600"
+                : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+            }`}
+          >
+            <Users size={13} />
+            Clients
+          </button>
+          <button
             onClick={() => setView({ page: "settings" })}
             className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg font-medium transition-all ${
               view.page === "settings"
@@ -55,6 +67,7 @@ export default function App() {
         {view.page === "list" && (
           <FlowList onOpen={(id) => setView({ page: "builder", flowId: id })} />
         )}
+        {view.page === "tenants" && <TenantsPanel />}
         {view.page === "settings" && <SettingsPanel />}
       </main>
     </div>
