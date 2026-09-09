@@ -122,7 +122,15 @@ execute.post("/simulate", zValidator("json", ExecuteSchema), async (c) => {
   const flowJson = await getFlowById(c.env, body.tenant_id, flowIdHeader);
   if (!flowJson) return c.json({ error: "flow not found" }, 404);
 
-  const result = executeFlow(flowJson, input);
+  const simInput: ExecuteInput = {
+    tenant_id: body.tenant_id,
+    contact_id: body.contact_id,
+    message_text: body.message_text,
+    current_node: body.current_node,
+    variables: body.variables,
+    recent_history: body.recent_history,
+  };
+  const result = executeFlow(flowJson, simInput);
   return c.json(result);
 });
 
