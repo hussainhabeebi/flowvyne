@@ -71,8 +71,9 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
       flowJson = await getFlowByKeyword(c.env, body.tenant_id, body.message_text);
     }
 
-    if (!flowJson) {
-      // No keyword match — fall back to the tenant's only active flow (greeting/default flow)
+    // Only restart from default flow when the user explicitly greeted or had an active node
+    // (random out-of-flow questions like "Location pls" should go to AI, not the greeting menu)
+    if (!flowJson && (isReset || body.current_node)) {
       flowJson = await getDefaultFlow(c.env, body.tenant_id);
     }
 
