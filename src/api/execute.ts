@@ -245,6 +245,7 @@ async function advanceSilent(
     ...originalInput,
     current_node: nextNode,
     variables: vars,
+    message_text: "",  // blank so capture nodes prompt rather than consuming prior user text
   });
 
   if (result.kind === "reply" && !result.reply_text && !result.reply_buttons) {
