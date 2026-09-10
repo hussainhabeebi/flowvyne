@@ -60,34 +60,42 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
 
     console.log(`[fv] tenant=${body.tenant_id} msg="${body.message_text}" current_node=${body.current_node} isReset=${isReset}`);
 
-    // 1. Resolve active flow — keyword match always wins (explicit intent takes priority)
+    // 1. Resolve active flow
     let flowJson: FlowJSON | null = null;
 
-    flowJson = await getFlowByKeyword(c.env, body.tenant_id, body.message_text);
-    console.log(`[fv] keyword match: ${flowJson ? "YES" : "no"}`);
-
-    if (!flowJson && body.current_node && !isReset) {
+    if (isReset) {
+      // Explicit greeting/restart — skip keyword matching, go straight to default/greeting flow
+      flowJson = await getDefaultFlow(c.env, body.tenant_id);
+      console.log(`[fv] reset → default flow: ${flowJson ? "YES" : "no"}`);
+    } else if (body.current_node) {
       // Conversation in progress — look up the flow this node belongs to
       flowJson = await getFlowByNode(c.env, body.tenant_id, body.current_node);
       console.log(`[fv] node match: ${flowJson ? "YES" : "no"}`);
-    }
 
-    if (!flowJson && isReset) {
-      // Explicit greeting/restart with no keyword trigger — use greeting/default flow
-      flowJson = await getDefaultFlow(c.env, body.tenant_id);
-      console.log(`[fv] default flow (reset): ${flowJson ? "YES" : "no"}`);
-    }
-
-    if (!flowJson) {
-      // No flow matched — classify intent to decide who should answer
+      // If user typed a recognised keyword mid-flow, let them jump to that flow
+      if (!flowJson) {
+        flowJson = await getFlowByKeyword(c.env, body.tenant_id, body.message_text);
+        console.log(`[fv] mid-flow keyword escape: ${flowJson ? "YES" : "no"}`);
+      }
+    } else {
+      // No active flow — classify intent FIRST so a stray word doesn't retrigger the greeting menu
       const intent = await detectIntent(c.env, input.message_text);
-      console.log(`[fv] no flow → intent=${intent}`);
+      console.log(`[fv] no active flow → intent=${intent}`);
 
       if (intent === "product_query") {
         return c.json({ handled: false, next_node: null, variables: input.variables });
       }
 
-      return c.json(await aiOrFallback(c.env, input, null));
+      if (intent === "flow") {
+        // User wants to start a process — check for a matching keyword trigger
+        flowJson = await getFlowByKeyword(c.env, body.tenant_id, body.message_text);
+        console.log(`[fv] keyword match: ${flowJson ? "YES" : "no"}`);
+      }
+
+      // "general" intent or no keyword match → answer via AI
+      if (!flowJson) {
+        return c.json(await aiOrFallback(c.env, input, null));
+      }
     }
 
     // 2. Execute the flow (reset means start from beginning, not current_node)
