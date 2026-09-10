@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import type { Env, FlowJSON, ExecuteInput } from "../types";
+import type { Env, FlowJSON, FlowNode, ExecuteInput } from "../types";
 import { executeFlow } from "../executor";
 import { callAI } from "../ai-fallback";
 import { detectIntent } from "../intent";
@@ -102,6 +102,25 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
     const execInput = isReset ? { ...input, current_node: null } : input;
     const result = executeFlow(flowJson, execInput);
     console.log(`[fv] flow result: kind=${result.kind} next_node=${result.kind === "end" || result.kind === "ai_fallback" ? "n/a" : (result as {next_node?:string|null}).next_node ?? "null"}`);
+
+    // Stuck-menu detection: the menu re-presented the exact node the user was already on —
+    // meaning no option matched. If intent isn't flow-related, answer via AI and preserve
+    // current_node so the flow resumes after the AI reply.
+    if (
+      !isReset &&
+      result.kind === "reply" &&
+      body.current_node !== null &&
+      (result as { next_node?: string | null }).next_node === body.current_node
+    ) {
+      const stuckNode = flowJson.nodes.find((n: FlowNode) => n.id === body.current_node);
+      if (stuckNode?.type === "menu") {
+        const intent = await detectIntent(c.env, input.message_text);
+        console.log(`[fv] stuck menu → intent=${intent}`);
+        if (intent !== "flow") {
+          return c.json(await aiOrFallback(c.env, input, body.current_node));
+        }
+      }
+    }
 
     if (result.kind === "end") {
       // Flow reached its end node — user's message should be handled as fresh input
