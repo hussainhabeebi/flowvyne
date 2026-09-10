@@ -125,6 +125,18 @@ export function executeFlow(
         };
       }
 
+      // If the user is asking a side question rather than answering the prompt,
+      // route to AI so the question gets answered while the capture node stays active.
+      const isQuestion =
+        trimmed.includes("?") ||
+        /^(what|when|where|who|why|how|can|could|do|does|did|is|are|was|were|will|would)\b/i.test(trimmed);
+      if (isQuestion) {
+        return {
+          kind: "ai_fallback",
+          prompt_context: buildAIContext(input),
+        };
+      }
+
       if (!isValid(trimmed, node.data.validation)) {
         const errText =
           node.data.error_text ??
