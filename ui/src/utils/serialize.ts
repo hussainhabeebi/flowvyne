@@ -2,6 +2,20 @@ import type { Node, Edge } from "reactflow";
 
 type FlowJSON = { start_node: string; nodes: Record<string, unknown>[] };
 
+// Converts Google Drive share/view links to direct-image URLs before persisting.
+function toDirectImageUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw.trim());
+    if (url.hostname !== "drive.google.com") return raw.trim();
+    const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    if (fileMatch) return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
+    const idParam = url.searchParams.get("id");
+    if (idParam) return `https://drive.google.com/uc?export=view&id=${idParam}`;
+  } catch { /* not a valid URL */ }
+  return raw.trim();
+}
+
 // Convert React Flow canvas state → Flowvyne flow_json (stored in D1)
 export function canvasToFlowJson(nodes: Node[], edges: Edge[]): FlowJSON {
   const startNode = nodes.find((n) => !edges.some((e) => e.target === n.id));
@@ -11,7 +25,8 @@ export function canvasToFlowJson(nodes: Node[], edges: Edge[]): FlowJSON {
 
     if (n.type === "message") {
       const next = edges.find((e) => e.source === n.id)?.target ?? null;
-      return { ...base, next };
+      const image_url = toDirectImageUrl(n.data.image_url as string | undefined);
+      return { ...base, data: { ...n.data, image_url }, next };
     }
 
     if (n.type === "menu") {

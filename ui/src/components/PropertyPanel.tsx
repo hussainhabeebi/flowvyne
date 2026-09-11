@@ -82,17 +82,72 @@ function Input({ value, onChange, placeholder }: { value: string; onChange: (v: 
   );
 }
 
+// Converts any Google Drive share/view URL into a direct-image URL.
+// Other URLs are returned unchanged.
+function toDirectImageUrl(raw: string): string {
+  try {
+    const url = new URL(raw.trim());
+    if (url.hostname !== "drive.google.com") return raw.trim();
+
+    // https://drive.google.com/file/d/<ID>/view?...
+    const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    if (fileMatch) {
+      return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
+    }
+
+    // https://drive.google.com/open?id=<ID>
+    const idParam = url.searchParams.get("id");
+    if (idParam) {
+      return `https://drive.google.com/uc?export=view&id=${idParam}`;
+    }
+  } catch {
+    // not a valid URL — leave as-is
+  }
+  return raw.trim();
+}
+
 function MessageFields({
   data,
   update,
 }: {
-  data: { text: string };
+  data: { text: string; image_url?: string };
   update: (p: Record<string, unknown>) => void;
 }) {
+  const rawImageUrl = data.image_url ?? "";
+  const directUrl = rawImageUrl ? toDirectImageUrl(rawImageUrl) : "";
+  const isConverted = directUrl && directUrl !== rawImageUrl;
+
   return (
-    <div>
-      <Label>Message text (use {"{{variable}}"} for variables)</Label>
-      <Textarea value={data.text ?? ""} onChange={(v) => update({ text: v })} rows={5} />
+    <div className="space-y-4">
+      <div>
+        <Label>Message text (use {"{{variable}}"} for variables)</Label>
+        <Textarea value={data.text ?? ""} onChange={(v) => update({ text: v })} rows={5} />
+      </div>
+
+      <div>
+        <Label>Image URL (optional — Google Drive or direct link)</Label>
+        <Input
+          value={rawImageUrl}
+          onChange={(v) => update({ image_url: v || undefined })}
+          placeholder="https://drive.google.com/file/d/…/view"
+        />
+        {isConverted && (
+          <p className="mt-1 text-xs text-slate-400 break-all">
+            Will send as: <span className="text-emerald-600">{directUrl}</span>
+          </p>
+        )}
+        {directUrl && (
+          <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+            <img
+              src={directUrl}
+              alt="preview"
+              className="w-full max-h-36 object-contain"
+              onError={(e) => (e.currentTarget.style.display = "none")}
+              onLoad={(e) => (e.currentTarget.style.display = "")}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

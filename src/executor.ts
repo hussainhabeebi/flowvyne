@@ -75,10 +75,39 @@ export function executeFlow(
   switch (node.type) {
     case "message": {
       const text = interpolate(node.data.text, variables);
+      const imageProps = node.data.image_url ? { reply_image_url: node.data.image_url } : {};
+
+      // Auto-advance: peek at the next node. If it's a Menu or Capture, combine outputs
+      // so the user sees prompt + options in the same message (no extra user turn required).
+      if (node.next) {
+        const nextNode = findNode(flow, node.next);
+
+        if (nextNode?.type === "menu") {
+          return {
+            kind: "reply",
+            reply_text: text + "\n\n" + interpolate(nextNode.data.text, variables),
+            ...imageProps,
+            reply_buttons: nextNode.data.options,
+            next_node: nextNode.id, // wait on the menu node
+            variables,
+          };
+        }
+
+        if (nextNode?.type === "capture") {
+          return {
+            kind: "reply",
+            reply_text: text + "\n\n" + interpolate(nextNode.data.prompt, variables),
+            ...imageProps,
+            next_node: nextNode.id, // wait on the capture node
+            variables,
+          };
+        }
+      }
+
       return {
         kind: "reply",
         reply_text: text,
-        ...(node.data.image_url ? { reply_image_url: node.data.image_url } : {}),
+        ...imageProps,
         next_node: node.next,
         variables,
       };
