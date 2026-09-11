@@ -27,6 +27,7 @@ type IncomingMessage = {
 };
 
 type FlowvyneResponse = {
+  handled: boolean;
   kind: "reply" | "end" | "ai_fallback";
   reply_text?: string;
   reply_buttons?: Array<{ label: string; value: string }>;
@@ -88,7 +89,14 @@ export async function handleIncomingMessage(
 
   const result = (await flowResp.json()) as FlowvyneResponse;
 
-  // 4. Persist updated flow state back into Leadvyne's conversation row
+  // 4. If Flowvyne couldn't handle this message, pass to Leadvyne's AI path.
+  //    Do NOT update flow state — the current node is preserved so the flow
+  //    resumes on the user's next message after the AI answers.
+  if (!result.handled) {
+    return existingAIPath(msg, env);
+  }
+
+  // 5. Persist updated flow state back into Leadvyne's conversation row
   await env.DB.prepare(
     "UPDATE conversations SET flow_current_node = ?, flow_variables = ? WHERE id = ?"
   )
@@ -99,7 +107,7 @@ export async function handleIncomingMessage(
     )
     .run();
 
-  // 5. Return reply to Leadvyne's existing send layer (Chatwoot / Meta)
+  // 6. Return reply to Leadvyne's existing send layer (Chatwoot / Meta)
   //    Leadvyne still does the actual send — nothing changes here
   return {
     reply_text: result.reply_text,

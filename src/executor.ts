@@ -78,6 +78,7 @@ export function executeFlow(
       return {
         kind: "reply",
         reply_text: text,
+        ...(node.data.image_url ? { reply_image_url: node.data.image_url } : {}),
         next_node: node.next,
         variables,
       };
@@ -95,10 +96,13 @@ export function executeFlow(
 
       if (matched) {
         // User picked a valid option — advance without sending another message
+        const updatedVars = matched.store_as
+          ? { ...variables, [matched.store_as]: matched.value }
+          : variables;
         return {
           kind: "reply",
           next_node: matched.next,
-          variables,
+          variables: updatedVars,
         };
       }
 
@@ -122,6 +126,18 @@ export function executeFlow(
           reply_text: interpolate(node.data.prompt, variables),
           next_node: nodeId,
           variables,
+        };
+      }
+
+      // If the user is asking a side question rather than answering the prompt,
+      // route to AI so the question gets answered while the capture node stays active.
+      const isQuestion =
+        trimmed.includes("?") ||
+        /^(what|when|where|who|why|how|can|could|do|does|did|is|are|was|were|will|would)\b/i.test(trimmed);
+      if (isQuestion) {
+        return {
+          kind: "ai_fallback",
+          prompt_context: buildAIContext(input),
         };
       }
 
