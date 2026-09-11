@@ -5,6 +5,7 @@ export type MessageNode = {
   type: "message";
   data: {
     text: string; // supports {{variable}} interpolation
+    image_url?: string; // optional image attachment (QR code, etc.)
   };
   next: string | null; // null = end
 };
@@ -12,6 +13,7 @@ export type MessageNode = {
 export type MenuOption = {
   label: string;
   value: string; // matched against incoming message (case-insensitive)
+  store_as?: string; // if set, stores value into this variable on selection
   next: string;
 };
 
@@ -83,6 +85,7 @@ export type ExecuteOutput =
   | {
       kind: "reply";
       reply_text?: string;
+      reply_image_url?: string;
       reply_buttons?: MenuOption[];
       next_node: string | null;
       variables: Record<string, string>;

@@ -356,6 +356,215 @@ export const VERTICAL_TEMPLATES: Template[] = [
     },
   },
 
+  // ── Matrimony Service ──────────────────────────────────────────────────────
+  {
+    id: "matrimony-service",
+    name: "Matrimony Service",
+    description: "Profile browsing, subscription payments, and free profile registration for matrimony services.",
+    vertical: "matrimony",
+    trigger_keywords: ["matrimony", "marriage", "bride", "groom", "profile", "match", "wedding"],
+    flow_json: {
+      start_node: "mat_menu",
+      nodes: [
+        // ── Main Menu ──────────────────────────────────────────────────────
+        {
+          id: "mat_menu",
+          type: "menu" as const,
+          data: {
+            text: "💍 Welcome to our Matrimony Service!\n\nHow can we help you today?",
+            options: [
+              { label: "Browse Profiles", value: "browse", next: "mat_check_sub" },
+              { label: "Add My Profile (Free)", value: "add", next: "mat_profile_intro" },
+              { label: "Subscribe / Pay", value: "subscribe", next: "mat_plans" },
+              { label: "Help & Contact", value: "help", next: "mat_help" },
+            ],
+          },
+        },
+
+        // ── Subscription check (Leadvyne injects subscription_active = "yes" | "no") ──
+        {
+          id: "mat_check_sub",
+          type: "condition" as const,
+          data: {
+            variable: "subscription_active",
+            operator: "eq" as const,
+            value: "yes",
+            true_next: "mat_profiles",
+            false_next: "mat_no_sub",
+          },
+        },
+        {
+          id: "mat_profiles",
+          type: "message" as const,
+          data: {
+            text: "✅ Your subscription is active!\n\nOur team will send you suitable matches shortly.\n\nType *menu* to return to the main menu.",
+          },
+          next: null,
+        },
+        {
+          id: "mat_no_sub",
+          type: "message" as const,
+          data: {
+            text: "❌ You don't have an active subscription yet.\n\nSubscribe to browse profiles and connect with your perfect match! 💍",
+          },
+          next: "mat_plans",
+        },
+
+        // ── Subscription & Payment ─────────────────────────────────────────
+        {
+          id: "mat_plans",
+          type: "message" as const,
+          data: {
+            text: "📋 *Subscription Plans*\n\n✦ 1 Month  — AED 99\n✦ 3 Months — AED 249\n✦ 6 Months — AED 399\n\nScan the QR code in the next message to pay.",
+          },
+          next: "mat_payment_qr",
+        },
+        {
+          id: "mat_payment_qr",
+          type: "message" as const,
+          data: {
+            text: "📲 Scan the QR code below to pay. Once done, share your transaction ID with us.",
+            image_url: "https://drive.google.com/uc?export=view&id=YOUR_GOOGLE_DRIVE_FILE_ID",
+          },
+          next: "mat_pay_ref",
+        },
+        {
+          id: "mat_pay_ref",
+          type: "capture" as const,
+          data: {
+            prompt: "Please enter your *transaction ID / reference number* after payment:",
+            variable: "payment_ref",
+            validation: "none" as const,
+          },
+          next: "mat_pay_name",
+        },
+        {
+          id: "mat_pay_name",
+          type: "capture" as const,
+          data: { prompt: "Your full name?", variable: "subscriber_name", validation: "none" as const },
+          next: "mat_pay_confirm",
+        },
+        {
+          id: "mat_pay_confirm",
+          type: "message" as const,
+          data: {
+            text: "✅ Thank you, {{subscriber_name}}!\n\nWe've received your payment reference *{{payment_ref}}*.\n\nOur team will verify and activate your subscription within 2 hours. You'll receive a confirmation message once it's active. 💍",
+          },
+          next: null,
+        },
+
+        // ── Profile Addition (Free) ────────────────────────────────────────
+        {
+          id: "mat_profile_intro",
+          type: "message" as const,
+          data: { text: "🆓 Adding your profile is completely *FREE*!\n\nWe'll collect a few details. Let's get started." },
+          next: "mat_p_gender",
+        },
+        {
+          id: "mat_p_gender",
+          type: "menu" as const,
+          data: {
+            text: "You are registering as a:",
+            options: [
+              { label: "Groom (Male)", value: "male", store_as: "gender", next: "mat_p_name" },
+              { label: "Bride (Female)", value: "female", store_as: "gender", next: "mat_p_name" },
+            ],
+          },
+        },
+        {
+          id: "mat_p_name",
+          type: "capture" as const,
+          data: { prompt: "Your full name?", variable: "profile_name", validation: "none" as const },
+          next: "mat_p_age",
+        },
+        {
+          id: "mat_p_age",
+          type: "capture" as const,
+          data: {
+            prompt: "Your age?",
+            variable: "profile_age",
+            validation: "number" as const,
+            error_text: "Please enter a valid age (numbers only).",
+          },
+          next: "mat_p_height",
+        },
+        {
+          id: "mat_p_height",
+          type: "capture" as const,
+          data: { prompt: "Your height? (e.g. 5'7\" or 170 cm)", variable: "profile_height", validation: "none" as const },
+          next: "mat_p_edu",
+        },
+        {
+          id: "mat_p_edu",
+          type: "capture" as const,
+          data: { prompt: "Your highest education qualification?", variable: "profile_education", validation: "none" as const },
+          next: "mat_p_job",
+        },
+        {
+          id: "mat_p_job",
+          type: "capture" as const,
+          data: { prompt: "Your profession / job?", variable: "profile_profession", validation: "none" as const },
+          next: "mat_p_location",
+        },
+        {
+          id: "mat_p_location",
+          type: "capture" as const,
+          data: { prompt: "Your city / location?", variable: "profile_location", validation: "none" as const },
+          next: "mat_p_religion",
+        },
+        {
+          id: "mat_p_religion",
+          type: "capture" as const,
+          data: {
+            prompt: "Your religion / community / caste? (type *skip* to skip)",
+            variable: "profile_religion",
+            validation: "none" as const,
+          },
+          next: "mat_p_about",
+        },
+        {
+          id: "mat_p_about",
+          type: "capture" as const,
+          data: {
+            prompt: "Tell us a little about yourself and what you're looking for in a partner:",
+            variable: "profile_about",
+            validation: "none" as const,
+          },
+          next: "mat_p_phone",
+        },
+        {
+          id: "mat_p_phone",
+          type: "capture" as const,
+          data: {
+            prompt: "Your WhatsApp / contact number (for matches to reach you)?",
+            variable: "profile_phone",
+            validation: "phone" as const,
+            error_text: "Please enter a valid phone number (e.g. +971501234567).",
+          },
+          next: "mat_p_confirm",
+        },
+        {
+          id: "mat_p_confirm",
+          type: "message" as const,
+          data: {
+            text: "🎉 Thank you, {{profile_name}}!\n\nYour profile has been submitted and will be reviewed within 24 hours.\n\n📋 *Your Profile*\nGender: {{gender}}\nAge: {{profile_age}}\nHeight: {{profile_height}}\nEducation: {{profile_education}}\nProfession: {{profile_profession}}\nLocation: {{profile_location}}\n\nWe'll notify you once your profile is live! 💍",
+          },
+          next: null,
+        },
+
+        // ── Help & Contact ─────────────────────────────────────────────────
+        {
+          id: "mat_help",
+          type: "message" as const,
+          data: {
+            text: "📞 *Contact Us*\n\nFor any queries:\n📱 WhatsApp: +XX XXX XXX XXXX\n📧 Email: matrimony@yourdomain.com\n⏰ Support hours: 9 AM – 9 PM\n\nType *menu* to return to the main menu.",
+          },
+          next: null,
+        },
+      ],
+    },
+  },
+
   // ── Field Service ──────────────────────────────────────────────────────
   {
     id: "field-service",
