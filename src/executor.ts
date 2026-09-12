@@ -208,15 +208,17 @@ export function executeFlow(
       );
 
       if (matched) {
-        // User picked a valid option — advance without sending another message
+        // User picked a valid option. Render the destination immediately with
+        // empty input so menu values are never consumed as capture answers.
         const updatedVars = matched.store_as
           ? { ...variables, [matched.store_as]: matched.value }
           : variables;
-        return {
-          kind: "reply",
-          next_node: matched.next,
+        return executeFlow(flow, {
+          ...input,
+          message_text: "",
+          current_node: matched.next,
           variables: updatedVars,
-        };
+        });
       }
 
       // No match — re-present the menu

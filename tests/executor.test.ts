@@ -107,6 +107,82 @@ describe("executeFlow", () => {
     expect(result.next_node).toBe("cap1"); // waiting on capture, not the message
   });
 
+  it("Menu → Message → Menu: renders the message and destination menu immediately", () => {
+    const flow: FlowJSON = {
+      start_node: "main",
+      nodes: [
+        {
+          id: "main",
+          type: "menu",
+          data: {
+            text: "Choose:",
+            options: [{ label: "Add My Profile (Free)", value: "add", next: "intro" }],
+          },
+        },
+        { id: "intro", type: "message", data: { text: "Adding your profile is free." }, next: "gender" },
+        {
+          id: "gender",
+          type: "menu",
+          data: {
+            text: "Registering as:",
+            deterministic: true,
+            options: [
+              { label: "Groom", value: "male", store_as: "gender", next: "profile" },
+              { label: "Bride", value: "female", store_as: "gender", next: "profile" },
+            ],
+          },
+        },
+        structuredFlow.nodes[1],
+        structuredFlow.nodes[2],
+      ],
+    };
+
+    const result = executeFlow(flow, makeInput({ current_node: "main", message_text: "add" }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.reply_text).toContain("Adding your profile is free.");
+    expect(result.reply_text).toContain("Registering as:");
+    expect(result.reply_buttons?.map((option) => option.value)).toEqual(["male", "female"]);
+    expect(result.next_node).toBe("gender");
+  });
+
+  it("Menu → Structured Capture: renders the capture prompt immediately", () => {
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "gender",
+      message_text: "Groom",
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.reply_text).toBe("Complete the profile form");
+    expect(result.next_node).toBe("profile");
+  });
+
+  it("preserves gender while auto-advancing into Structured Capture", () => {
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "gender",
+      message_text: "male",
+      variables: { existing: "kept" },
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.variables).toMatchObject({ gender: "male", existing: "kept" });
+  });
+
+  it("does not invoke AI fallback during deterministic registration auto-advance", () => {
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "gender",
+      message_text: "1",
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.reply_text).toBe("Complete the profile form");
+    expect(result.next_node).toBe("profile");
+  });
+
   it("Message with image_url preserves reply_image_url", () => {
     const flow: FlowJSON = {
       start_node: "msg1",
@@ -292,6 +368,7 @@ describe("executeFlow", () => {
     expect(result.kind).toBe("reply");
     if (result.kind !== "reply") return;
     expect(result.next_node).toBe("profile");
+    expect(result.reply_text).toBe("Complete the profile form");
     expect(result.variables.gender).toBe("male");
   });
 

@@ -216,7 +216,7 @@ function localSimulate(
       const updatedVariables = matched.store_as
         ? { ...variables, [matched.store_as]: matched.value }
         : variables;
-      return { kind: "reply", next_node: matched.next, variables: updatedVariables };
+      return localSimulate(flow, matched.next, "", updatedVariables);
     }
     return { kind: "reply", reply_text: interpolate(node.data.text), reply_buttons: node.data.options, next_node: nodeId, variables };
   }
