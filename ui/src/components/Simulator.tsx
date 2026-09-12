@@ -249,6 +249,22 @@ function localSimulate(
     }
     return { kind: "reply", next_node: node.next, variables: { ...variables, [node.data.variable]: message.trim() } };
   }
+  if (node.type === "form") {
+    const indexKey = `__fv_form_${node.id}_index`;
+    const index = Number.parseInt(variables[indexKey] ?? "0", 10) || 0;
+    const field = node.data.fields[index];
+    if (!field) return { kind: "reply", reply_text: node.data.success_text, next_node: node.next, variables };
+    if (!message.trim()) {
+      return { kind: "reply", reply_text: `${node.data.title}\n\n${field.label}`, next_node: node.id, variables };
+    }
+    const nextVars = { ...variables, [field.variable]: message.trim(), [indexKey]: String(index + 1) };
+    const nextField = node.data.fields[index + 1];
+    if (nextField) return { kind: "reply", reply_text: nextField.label, next_node: node.id, variables: nextVars };
+    delete nextVars[indexKey];
+    const success = (node.data.success_text ?? "Thank you. Your form has been submitted.")
+      .replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => nextVars[key] ?? `{{${key}}}`);
+    return { kind: "reply", reply_text: success, next_node: node.next, variables: nextVars };
+  }
   if (node.type === "end") {
     return { kind: "end", variables };
   }

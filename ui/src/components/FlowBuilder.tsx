@@ -13,6 +13,7 @@ import { MenuNode } from "./nodes/MenuNode";
 import { CaptureNode } from "./nodes/CaptureNode";
 import { ConditionNode } from "./nodes/ConditionNode";
 import { EndNode } from "./nodes/EndNode";
+import { FormNode } from "./nodes/FormNode";
 import { PropertyPanel } from "./PropertyPanel";
 import { Toolbar } from "./Toolbar";
 import { Simulator } from "./Simulator";
@@ -24,6 +25,7 @@ const NODE_TYPES = {
   message: MessageNode,
   menu: MenuNode,
   capture: CaptureNode,
+  form: FormNode,
   condition: ConditionNode,
   end: EndNode,
 };
@@ -153,6 +155,7 @@ export function FlowBuilder({ flowId, onBack }: Props) {
                 message: "#4f6ef7",
                 menu: "#a855f7",
                 capture: "#10b981",
+                form: "#06b6d4",
                 condition: "#f59e0b",
                 end: "#f43f5e",
               };

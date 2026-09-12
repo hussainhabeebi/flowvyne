@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import type { Env, FlowJSON, FlowNode, ExecuteInput } from "../types";
+import type { Env, FlowJSON, FlowNode, ExecuteInput, ExecuteOutput } from "../types";
 import { executeFlow } from "../executor";
 import { callAI } from "../ai-fallback";
 import { detectIntent } from "../intent";
@@ -106,6 +106,10 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
     const execInput = isReset ? { ...input, current_node: null } : input;
     const result = executeFlow(flowJson, execInput);
     console.log(`[fv] flow result: kind=${result.kind} next_node=${result.kind === "end" || result.kind === "ai_fallback" ? "n/a" : (result as {next_node?:string|null}).next_node ?? "null"}`);
+
+    if (result.kind === "reply" && result.form_submission) {
+      await saveAndSyncForm(c.env, input, result.form_submission);
+    }
 
     // Stuck-menu detection: the menu re-presented the exact node the user was already on —
     // meaning no option matched. If intent isn't flow-related, answer via AI and preserve
@@ -343,3 +347,58 @@ async function aiOrFallback(
 }
 
 export { execute };
+
+async function saveAndSyncForm(
+  env: Env,
+  input: ExecuteInput,
+  submission: NonNullable<Extract<ExecuteOutput, { kind: "reply" }>["form_submission"]>
+): Promise<void> {
+  const id = crypto.randomUUID();
+  const payload = {
+    submission_id: id,
+    submitted_at: new Date().toISOString(),
+    tenant_id: input.tenant_id,
+    contact_id: input.contact_id,
+    form_node_id: submission.form_node_id,
+    form_title: submission.form_title,
+    sheet_name: submission.sheet_sync?.sheet_name || "Flowvyne Responses",
+    values: submission.values,
+  };
+
+  await env.DB.prepare(`
+    INSERT INTO form_submissions
+      (id, tenant_id, contact_id, form_node_id, form_title, submission_json, sync_status)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id,
+    input.tenant_id,
+    input.contact_id,
+    submission.form_node_id,
+    submission.form_title,
+    JSON.stringify(submission.values),
+    submission.sheet_sync?.enabled ? "pending" : "not_configured"
+  ).run();
+
+  const webhookUrl = submission.sheet_sync?.enabled && submission.sheet_sync.webhook_url;
+  if (!webhookUrl) return;
+
+  try {
+    const url = new URL(webhookUrl);
+    if (url.protocol !== "https:") throw new Error("Google Sheets webhook must use HTTPS");
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`Webhook returned ${response.status}`);
+    await env.DB.prepare(
+      "UPDATE form_submissions SET sync_status = 'synced', synced_at = datetime('now'), sync_error = NULL WHERE id = ?"
+    ).bind(id).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await env.DB.prepare(
+      "UPDATE form_submissions SET sync_status = 'failed', sync_error = ? WHERE id = ?"
+    ).bind(message.slice(0, 500), id).run();
+    console.error(`[fv] Google Sheets sync failed submission=${id}:`, error);
+  }
+}

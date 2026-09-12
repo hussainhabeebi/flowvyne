@@ -111,6 +111,13 @@ function missingFieldsPrompt(fields: StructuredCaptureField[]): string {
   return `Please provide or correct only these details:\n\n${lines.join("\n")}`;
 }
 
+function formFieldPrompt(label: string, required: boolean, placeholder?: string, options?: string[]): string {
+  const optionText = options?.length ? `\n${options.map((option, i) => `${i + 1}. ${option}`).join("\n")}` : "";
+  const hint = placeholder ? `\n${placeholder}` : "";
+  const skip = required ? "" : " (reply skip to leave blank)";
+  return `${label}${skip}${optionText}${hint}`;
+}
+
 // ── Node lookup ───────────────────────────────────────────────────────────
 
 function findNode(flow: FlowJSON, id: string): FlowNode | undefined {
@@ -161,6 +168,21 @@ export function executeFlow(
             reply_text: text + "\n\n" + interpolate(nextNode.data.prompt, variables),
             ...imageProps,
             next_node: nextNode.id, // wait on the capture node
+            variables,
+          };
+        }
+
+
+        if (nextNode?.type === "form") {
+          const first = nextNode.data.fields[0];
+          const intro = [nextNode.data.title, nextNode.data.description].filter(Boolean).join("\n");
+          return {
+            kind: "reply",
+            reply_text: first
+              ? `${text}\n\n${intro}\n\n${formFieldPrompt(first.label, first.required !== false, first.placeholder, first.options)}`
+              : `${text}\n\n${intro}`,
+            ...imageProps,
+            next_node: nextNode.id,
             variables,
           };
         }
@@ -283,6 +305,95 @@ export function executeFlow(
         kind: "reply",
         next_node: node.next,
         variables: updatedVars,
+      };
+    }
+
+    case "form": {
+      const indexKey = `__fv_form_${node.id}_index`;
+      const currentIndex = Math.max(0, Number.parseInt(variables[indexKey] ?? "0", 10) || 0);
+      const field = node.data.fields[currentIndex];
+
+      if (!field) {
+        const cleaned = { ...variables };
+        delete cleaned[indexKey];
+        return {
+          kind: "reply",
+          reply_text: interpolate(node.data.success_text ?? "Thank you. Your form has been submitted.", cleaned),
+          next_node: node.next,
+          variables: cleaned,
+          form_submission: {
+            form_node_id: node.id,
+            form_title: node.data.title,
+            values: Object.fromEntries(node.data.fields.map((item) => [item.variable, cleaned[item.variable] ?? ""])),
+            sheet_sync: node.data.sheet_sync,
+          },
+        };
+      }
+
+      const trimmed = message_text.trim();
+      if (!trimmed) {
+        const intro = currentIndex === 0
+          ? [node.data.title, node.data.description].filter(Boolean).join("\n")
+          : "";
+        return {
+          kind: "reply",
+          reply_text: [intro, formFieldPrompt(field.label, field.required !== false, field.placeholder, field.options)]
+            .filter(Boolean).join("\n\n"),
+          next_node: nodeId,
+          variables,
+        };
+      }
+
+      const skipped = field.required === false && trimmed.toLowerCase() === "skip";
+      let value = skipped ? "" : trimmed;
+      if ((field.type === "select" || field.type === "radio") && field.options?.length && !skipped) {
+        const option = field.options.find((item, i) =>
+          item.toLowerCase() === trimmed.toLowerCase() || String(i + 1) === trimmed
+        );
+        if (!option) {
+          return {
+            kind: "reply",
+            reply_text: `Please choose one of the available options.\n\n${formFieldPrompt(field.label, true, field.placeholder, field.options)}`,
+            next_node: nodeId,
+            variables,
+          };
+        }
+        value = option;
+      }
+
+      const validation = ["email", "phone", "number"].includes(field.type) ? field.type : "none";
+      if (!skipped && !isValid(value, validation)) {
+        return {
+          kind: "reply",
+          reply_text: `That doesn't look like a valid ${field.type}. Please try again.`,
+          next_node: nodeId,
+          variables,
+        };
+      }
+
+      const updated = { ...variables, [field.variable]: value, [indexKey]: String(currentIndex + 1) };
+      const nextField = node.data.fields[currentIndex + 1];
+      if (nextField) {
+        return {
+          kind: "reply",
+          reply_text: formFieldPrompt(nextField.label, nextField.required !== false, nextField.placeholder, nextField.options),
+          next_node: nodeId,
+          variables: updated,
+        };
+      }
+
+      delete updated[indexKey];
+      return {
+        kind: "reply",
+        reply_text: interpolate(node.data.success_text ?? "Thank you. Your form has been submitted.", updated),
+        next_node: node.next,
+        variables: updated,
+        form_submission: {
+          form_node_id: node.id,
+          form_title: node.data.title,
+          values: Object.fromEntries(node.data.fields.map((item) => [item.variable, updated[item.variable] ?? ""])),
+          sheet_sync: node.data.sheet_sync,
+        },
       };
     }
 
