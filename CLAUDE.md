@@ -49,6 +49,7 @@ cd ui && npm install && npm run dev   # Vite on :5173 (proxies /api → :8787)
 - `message` — send text, supports `{{variable}}` interpolation
 - `menu` — send buttons/list; matched by label, value, or index (1/2/3)
 - `capture` — await user input → store in variable; optional validation (email/phone/number)
+- `form` — collect multiple typed fields, save the response, and optionally sync it to Google Sheets
 - `condition` — branch on variable value; advances silently (no user-visible output)
 - `end` — terminate the flow
 

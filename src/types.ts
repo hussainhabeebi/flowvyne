@@ -60,6 +60,44 @@ export type CaptureNode = {
   next: string;
 };
 
+export type FormFieldType =
+  | "text"
+  | "email"
+  | "phone"
+  | "number"
+  | "select"
+  | "radio"
+  | "checkbox"
+  | "date"
+  | "textarea";
+
+export type FormField = {
+  id: string;
+  label: string;
+  variable: string;
+  type: FormFieldType;
+  required?: boolean;
+  placeholder?: string;
+  options?: string[];
+};
+
+export type FormNode = {
+  id: string;
+  type: "form";
+  data: {
+    title: string;
+    description?: string;
+    fields: FormField[];
+    success_text?: string;
+    sheet_sync?: {
+      enabled: boolean;
+      webhook_url?: string;
+      sheet_name?: string;
+    };
+  };
+  next: string | null;
+};
+
 export type ConditionOperator = "eq" | "neq" | "contains" | "starts_with" | "gt" | "lt";
 
 export type ConditionNode = {
@@ -79,7 +117,7 @@ export type EndNode = {
   type: "end";
 };
 
-export type FlowNode = MessageNode | MenuNode | CaptureNode | ConditionNode | EndNode;
+export type FlowNode = MessageNode | MenuNode | CaptureNode | FormNode | ConditionNode | EndNode;
 
 // ── Flow JSON (stored in flow_versions.flow_json) ─────────────────────────
 
@@ -110,6 +148,12 @@ export type ExecuteOutput =
       reply_buttons?: MenuOption[];
       next_node: string | null;
       variables: Record<string, string>;
+      form_submission?: {
+        form_node_id: string;
+        form_title: string;
+        values: Record<string, string>;
+        sheet_sync?: FormNode["data"]["sheet_sync"];
+      };
     }
   | { kind: "ai_fallback"; prompt_context: string } // no matching node — delegate to AI
   | { kind: "end"; variables: Record<string, string> };

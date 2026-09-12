@@ -363,4 +363,47 @@ describe("executeFlow", () => {
     expect(menu.data.deterministic).toBe(true);
     expect(capture.data.fields[0]).toMatchObject({ variable: "profile_education", required: true });
   });
+
+  it("Form collects multiple fields and emits a completed submission", () => {
+    const flow: FlowJSON = {
+      start_node: "form1",
+      nodes: [
+        {
+          id: "form1",
+          type: "form",
+          data: {
+            title: "Lead form",
+            fields: [
+              { id: "name", label: "Your name", variable: "name", type: "text", required: true },
+              { id: "email", label: "Your email", variable: "email", type: "email", required: true },
+            ],
+            success_text: "Thanks {{name}}",
+            sheet_sync: { enabled: true, webhook_url: "https://example.com/hook", sheet_name: "Leads" },
+          },
+          next: "end1",
+        },
+        { id: "end1", type: "end" },
+      ],
+    };
+
+    const first = executeFlow(flow, makeInput({ current_node: "form1", message_text: "Sara" }));
+    expect(first.kind).toBe("reply");
+    if (first.kind !== "reply") return;
+    expect(first.reply_text).toContain("Your email");
+    expect(first.variables.name).toBe("Sara");
+
+    const invalid = executeFlow(flow, makeInput({ current_node: "form1", message_text: "not-an-email", variables: first.variables }));
+    expect(invalid.kind).toBe("reply");
+    if (invalid.kind !== "reply") return;
+    expect(invalid.next_node).toBe("form1");
+    expect(invalid.reply_text).toContain("valid email");
+
+    const completed = executeFlow(flow, makeInput({ current_node: "form1", message_text: "sara@example.com", variables: invalid.variables }));
+    expect(completed.kind).toBe("reply");
+    if (completed.kind !== "reply") return;
+    expect(completed.reply_text).toBe("Thanks Sara");
+    expect(completed.next_node).toBe("end1");
+    expect(completed.form_submission?.values).toEqual({ name: "Sara", email: "sara@example.com" });
+    expect(completed.form_submission?.sheet_sync?.sheet_name).toBe("Leads");
+  });
 });

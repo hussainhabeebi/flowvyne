@@ -41,7 +41,7 @@ export function canvasToFlowJson(nodes: Node[], edges: Edge[]): FlowJSON {
       return { ...base, data: { ...n.data, options } };
     }
 
-    if (n.type === "capture") {
+    if (n.type === "capture" || n.type === "form") {
       const next = edges.find((e) => e.source === n.id)?.target ?? "";
       return { ...base, next };
     }
@@ -91,7 +91,7 @@ export function flowJsonToCanvas(flowJson: FlowJSON): { nodes: Node[]; edges: Ed
       });
     }
 
-    if (type === "capture" && n.next) {
+    if ((type === "capture" || type === "form") && n.next) {
       edges.push({ id: `e-${id}`, source: id, target: n.next as string, type: "smoothstep", animated: true });
     }
 
