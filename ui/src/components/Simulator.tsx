@@ -3,7 +3,12 @@ import { X, Send } from "lucide-react";
 import { useFlowStore } from "../store/flowStore";
 import { canvasToFlowJson } from "../utils/serialize";
 
-type Message = { role: "user" | "assistant"; text: string; buttons?: { label: string; value: string }[] };
+type Message = {
+  role: "user" | "assistant";
+  text: string;
+  imageUrl?: string;
+  buttons?: { label: string; value: string }[];
+};
 
 type Props = { onClose: () => void };
 
@@ -58,6 +63,7 @@ export function Simulator({ onClose }: Props) {
           {
             role: "assistant",
             text: result.reply_text ?? "",
+            imageUrl: result.reply_image_url,
             buttons: result.reply_buttons,
           },
         ]);
@@ -113,6 +119,13 @@ export function Simulator({ onClose }: Props) {
               }`}
             >
               {msg.text && <p>{msg.text}</p>}
+              {msg.imageUrl && (
+                <img
+                  src={msg.imageUrl}
+                  alt="Message attachment"
+                  className="mt-2 max-h-48 w-full rounded-lg object-contain"
+                />
+              )}
               {msg.buttons && (
                 <div className="mt-2 space-y-1">
                   {msg.buttons.map((btn, j) => (
@@ -186,25 +199,36 @@ function localSimulate(
   const interpolate = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_: string, k: string) => variables[k] ?? `{{${k}}}`);
 
   if (node.type === "message") {
-    const nextNode = flow.nodes.find((n: any) => n.id === node.next) as any;
-    if (nextNode?.type === "menu") {
-      return {
-        kind: "reply",
-        reply_text: `${interpolate(node.data.text)}\n\n${interpolate(nextNode.data.text)}`,
-        reply_buttons: nextNode.data.options,
-        next_node: nextNode.id,
-        variables,
-      };
+    const texts: string[] = [];
+    const visited = new Set<string>();
+    let imageUrl: string | undefined;
+    let messageNode = node;
+
+    for (let hops = 0; hops < 10; hops += 1) {
+      if (visited.has(messageNode.id)) {
+        return { kind: "reply", reply_text: texts.join("\n\n"), reply_image_url: imageUrl, next_node: messageNode.id, variables };
+      }
+      visited.add(messageNode.id);
+      texts.push(interpolate(messageNode.data.text));
+      if (messageNode.data.image_url) imageUrl = messageNode.data.image_url;
+
+      const nextNode = flow.nodes.find((n: any) => n.id === messageNode.next) as any;
+      if (nextNode?.type === "message") {
+        messageNode = nextNode;
+        continue;
+      }
+      if (nextNode?.type === "menu") {
+        texts.push(interpolate(nextNode.data.text));
+        return { kind: "reply", reply_text: texts.join("\n\n"), reply_image_url: imageUrl, reply_buttons: nextNode.data.options, next_node: nextNode.id, variables };
+      }
+      if (nextNode?.type === "capture") {
+        texts.push(interpolate(nextNode.data.prompt));
+        return { kind: "reply", reply_text: texts.join("\n\n"), reply_image_url: imageUrl, next_node: nextNode.id, variables };
+      }
+      return { kind: "reply", reply_text: texts.join("\n\n"), reply_image_url: imageUrl, next_node: messageNode.next, variables };
     }
-    if (nextNode?.type === "capture") {
-      return {
-        kind: "reply",
-        reply_text: `${interpolate(node.data.text)}\n\n${interpolate(nextNode.data.prompt)}`,
-        next_node: nextNode.id,
-        variables,
-      };
-    }
-    return { kind: "reply", reply_text: interpolate(node.data.text), next_node: node.next, variables };
+
+    return { kind: "reply", reply_text: texts.join("\n\n"), reply_image_url: imageUrl, next_node: messageNode.id, variables };
   }
   if (node.type === "menu") {
     const msg = message.trim().toLowerCase();
@@ -264,6 +288,19 @@ function localSimulate(
     const success = (node.data.success_text ?? "Thank you. Your form has been submitted.")
       .replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => nextVars[key] ?? `{{${key}}}`);
     return { kind: "reply", reply_text: success, next_node: node.next, variables: nextVars };
+  }
+  if (node.type === "condition") {
+    const left = variables[node.data.variable] ?? "";
+    const right = node.data.value;
+    const normalizedLeft = left.toLowerCase();
+    const normalizedRight = right.toLowerCase();
+    const matches = node.data.operator === "eq" ? normalizedLeft === normalizedRight
+      : node.data.operator === "neq" ? normalizedLeft !== normalizedRight
+      : node.data.operator === "contains" ? normalizedLeft.includes(normalizedRight)
+      : node.data.operator === "starts_with" ? normalizedLeft.startsWith(normalizedRight)
+      : node.data.operator === "gt" ? Number.parseFloat(left) > Number.parseFloat(right)
+      : Number.parseFloat(left) < Number.parseFloat(right);
+    return localSimulate(flow, matches ? node.data.true_next : node.data.false_next, "", variables);
   }
   if (node.type === "end") {
     return { kind: "end", variables };

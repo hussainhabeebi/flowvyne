@@ -235,6 +235,75 @@ describe("executeFlow", () => {
     expect(result.next_node).toBe("cap1");
   });
 
+  it("Condition → Message → Message → image Message → Capture auto-advances in one reply", () => {
+    const flow: FlowJSON = {
+      start_node: "subscription",
+      nodes: [
+        {
+          id: "subscription",
+          type: "condition",
+          data: {
+            variable: "subscription_active",
+            operator: "eq",
+            value: "yes",
+            true_next: "profiles",
+            false_next: "no-subscription",
+          },
+        },
+        { id: "profiles", type: "message", data: { text: "Subscribed profiles" }, next: null },
+        { id: "no-subscription", type: "message", data: { text: "No active subscription" }, next: "plans" },
+        { id: "plans", type: "message", data: { text: "Subscription plans" }, next: "qr" },
+        {
+          id: "qr",
+          type: "message",
+          data: { text: "Scan this QR", image_url: "https://example.com/actual-qr.png" },
+          next: "payment-ref",
+        },
+        {
+          id: "payment-ref",
+          type: "capture",
+          data: { prompt: "Enter your payment reference", variable: "payment_ref" },
+          next: "end",
+        },
+        { id: "end", type: "end" },
+      ],
+    };
+
+    const result = executeFlow(flow, makeInput({
+      current_node: "subscription",
+      variables: { subscription_active: "no" },
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.reply_text).toBe([
+      "No active subscription",
+      "Subscription plans",
+      "Scan this QR",
+      "Enter your payment reference",
+    ].join("\n\n"));
+    expect(result.reply_image_url).toBe("https://example.com/actual-qr.png");
+    expect(result.next_node).toBe("payment-ref");
+    expect(result.variables.subscription_active).toBe("no");
+  });
+
+  it("stops passive Message traversal when a cycle is detected", () => {
+    const flow: FlowJSON = {
+      start_node: "first",
+      nodes: [
+        { id: "first", type: "message", data: { text: "First" }, next: "second" },
+        { id: "second", type: "message", data: { text: "Second" }, next: "first" },
+      ],
+    };
+
+    const result = executeFlow(flow, makeInput({ current_node: "first" }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.reply_text).toBe("First\n\nSecond");
+    expect(result.next_node).toBe("first");
+  });
+
   it("structured Capture parses all profile fields, including education and profession", () => {
     const message = [
       "Full Name: Ahmed Ali",

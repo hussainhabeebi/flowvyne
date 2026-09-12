@@ -124,6 +124,108 @@ function findNode(flow: FlowJSON, id: string): FlowNode | undefined {
   return flow.nodes.find((n) => n.id === id);
 }
 
+const MAX_PASSIVE_MESSAGE_HOPS = 10;
+
+function executeMessageChain(
+  flow: FlowJSON,
+  startNode: Extract<FlowNode, { type: "message" }>,
+  variables: Record<string, string>
+): ExecuteOutput {
+  const texts: string[] = [];
+  const visited = new Set<string>();
+  let imageUrl: string | undefined;
+  let node = startNode;
+
+  for (let hops = 0; hops < MAX_PASSIVE_MESSAGE_HOPS; hops += 1) {
+    if (visited.has(node.id)) {
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: node.id,
+        variables,
+      };
+    }
+
+    visited.add(node.id);
+    texts.push(interpolate(node.data.text, variables));
+    if (node.data.image_url) imageUrl = node.data.image_url;
+
+    if (!node.next) {
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: null,
+        variables,
+      };
+    }
+
+    const nextNode = findNode(flow, node.next);
+
+    if (nextNode?.type === "message") {
+      node = nextNode;
+      continue;
+    }
+
+    if (nextNode?.type === "menu") {
+      texts.push(interpolate(nextNode.data.text, variables));
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        reply_buttons: nextNode.data.options,
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+
+    if (nextNode?.type === "capture") {
+      texts.push(interpolate(nextNode.data.prompt, variables));
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+
+    if (nextNode?.type === "form") {
+      const first = nextNode.data.fields[0];
+      const intro = [nextNode.data.title, nextNode.data.description].filter(Boolean).join("\n");
+      const formPrompt = first
+        ? [intro, formFieldPrompt(first.label, first.required !== false, first.placeholder, first.options)]
+            .filter(Boolean).join("\n\n")
+        : intro;
+      if (formPrompt) texts.push(formPrompt);
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+
+    return {
+      kind: "reply",
+      reply_text: texts.join("\n\n"),
+      ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+      next_node: node.next,
+      variables,
+    };
+  }
+
+  return {
+    kind: "reply",
+    reply_text: texts.join("\n\n"),
+    ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+    next_node: node.id,
+    variables,
+  };
+}
+
 // ── Main executor ─────────────────────────────────────────────────────────
 
 export function executeFlow(
@@ -143,58 +245,7 @@ export function executeFlow(
 
   switch (node.type) {
     case "message": {
-      const text = interpolate(node.data.text, variables);
-      const imageProps = node.data.image_url ? { reply_image_url: node.data.image_url } : {};
-
-      // Auto-advance: peek at the next node. If it's a Menu or Capture, combine outputs
-      // so the user sees prompt + options in the same message (no extra user turn required).
-      if (node.next) {
-        const nextNode = findNode(flow, node.next);
-
-        if (nextNode?.type === "menu") {
-          return {
-            kind: "reply",
-            reply_text: text + "\n\n" + interpolate(nextNode.data.text, variables),
-            ...imageProps,
-            reply_buttons: nextNode.data.options,
-            next_node: nextNode.id, // wait on the menu node
-            variables,
-          };
-        }
-
-        if (nextNode?.type === "capture") {
-          return {
-            kind: "reply",
-            reply_text: text + "\n\n" + interpolate(nextNode.data.prompt, variables),
-            ...imageProps,
-            next_node: nextNode.id, // wait on the capture node
-            variables,
-          };
-        }
-
-
-        if (nextNode?.type === "form") {
-          const first = nextNode.data.fields[0];
-          const intro = [nextNode.data.title, nextNode.data.description].filter(Boolean).join("\n");
-          return {
-            kind: "reply",
-            reply_text: first
-              ? `${text}\n\n${intro}\n\n${formFieldPrompt(first.label, first.required !== false, first.placeholder, first.options)}`
-              : `${text}\n\n${intro}`,
-            ...imageProps,
-            next_node: nextNode.id,
-            variables,
-          };
-        }
-      }
-
-      return {
-        kind: "reply",
-        reply_text: text,
-        ...imageProps,
-        next_node: node.next,
-        variables,
-      };
+      return executeMessageChain(flow, node, variables);
     }
 
     case "menu": {
