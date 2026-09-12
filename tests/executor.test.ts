@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { executeFlow } from "../src/executor";
 import type { FlowJSON, ExecuteInput } from "../src/types";
+import { VERTICAL_TEMPLATES } from "../src/templates";
+import { canvasToFlowJson } from "../ui/src/utils/serialize";
 
 function makeInput(overrides: Partial<ExecuteInput> = {}): ExecuteInput {
   return {
@@ -14,6 +16,42 @@ function makeInput(overrides: Partial<ExecuteInput> = {}): ExecuteInput {
 }
 
 describe("executeFlow", () => {
+  const structuredFlow: FlowJSON = {
+    start_node: "gender",
+    nodes: [
+      {
+        id: "gender",
+        type: "menu",
+        data: {
+          text: "Registering as:",
+          deterministic: true,
+          options: [{ label: "Groom", value: "male", store_as: "gender", next: "profile" }],
+        },
+      },
+      {
+        id: "profile",
+        type: "capture",
+        data: {
+          mode: "structured",
+          prompt: "Complete the profile form",
+          fields: [
+            { label: "Full Name", variable: "profile_name", required: true, aliases: ["Name"] },
+            { label: "Age", variable: "profile_age", required: true, validation: "number" },
+            { label: "Height", variable: "profile_height", required: true },
+            { label: "Highest Education / Qualification", variable: "profile_education", required: true, aliases: ["Education"] },
+            { label: "Profession / Job", variable: "profile_profession", required: true, aliases: ["Profession"] },
+            { label: "City / Location", variable: "profile_location", required: true, aliases: ["Location"] },
+            { label: "Religion / Community / Caste", variable: "profile_religion", required: false, aliases: ["Religion"] },
+            { label: "About yourself / what you're looking for", variable: "profile_about", required: true, aliases: ["About"] },
+            { label: "WhatsApp / Contact Number", variable: "profile_phone", required: true, validation: "phone", aliases: ["Phone"] },
+          ],
+        },
+        next: "confirm",
+      },
+      { id: "confirm", type: "message", data: { text: "Thanks {{profile_name}} ({{gender}})" }, next: null },
+    ],
+  };
+
   it("Message → Menu: combines message text and menu prompt + buttons in one reply", () => {
     const flow: FlowJSON = {
       start_node: "msg1",
@@ -119,5 +157,210 @@ describe("executeFlow", () => {
     expect(result.reply_text).toContain("Enter your transaction ID:");
     expect(result.reply_image_url).toBe("https://example.com/qr.png");
     expect(result.next_node).toBe("cap1");
+  });
+
+  it("structured Capture parses all profile fields, including education and profession", () => {
+    const message = [
+      "Full Name: Ahmed Ali",
+      "Age: 29",
+      "Height: 178 cm",
+      "Highest Education / Qualification: MBA",
+      "Profession / Job: Accountant",
+      "City / Location: Dubai",
+      "Religion / Community / Caste: Muslim",
+      "About yourself / what you're looking for: Family-oriented professional",
+      "seeking a kind and educated partner.",
+      "WhatsApp / Contact Number: +971501234567",
+    ].join("\n");
+
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "profile",
+      message_text: message,
+      variables: { gender: "male" },
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.next_node).toBe("confirm");
+    expect(result.variables).toMatchObject({
+      gender: "male",
+      profile_name: "Ahmed Ali",
+      profile_age: "29",
+      profile_height: "178 cm",
+      profile_education: "MBA",
+      profile_profession: "Accountant",
+      profile_location: "Dubai",
+      profile_religion: "Muslim",
+      profile_phone: "+971501234567",
+    });
+    expect(result.variables.profile_about).toContain("seeking a kind and educated partner.");
+  });
+
+  it("structured Capture saves valid fields and asks only for missing or invalid fields", () => {
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "profile",
+      message_text: [
+        "Name: Aisha Rahman",
+        "Age: twenty eight",
+        "Height: 165 cm",
+        "Education: BSc",
+        "Profession: Teacher",
+        "Location: Kozhikode",
+        "About: Looking for a compatible partner",
+        "Phone: invalid",
+      ].join("\n"),
+      variables: { gender: "female" },
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.next_node).toBe("profile");
+    expect(result.variables.profile_name).toBe("Aisha Rahman");
+    expect(result.variables.profile_education).toBe("BSc");
+    expect(result.variables.profile_profession).toBe("Teacher");
+    expect(result.variables.profile_age).toBeUndefined();
+    expect(result.variables.profile_phone).toBeUndefined();
+    expect(result.reply_text).toContain("Age:");
+    expect(result.reply_text).toContain("WhatsApp / Contact Number:");
+    expect(result.reply_text).not.toContain("Full Name:");
+    expect(result.reply_text).not.toContain("Religion / Community / Caste:");
+  });
+
+  it("structured Capture merges corrected fields without losing gender or earlier values", () => {
+    const variables = {
+      gender: "female",
+      profile_name: "Aisha Rahman",
+      profile_height: "165 cm",
+      profile_education: "BSc",
+      profile_profession: "Teacher",
+      profile_location: "Kozhikode",
+      profile_about: "Looking for a compatible partner",
+    };
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "profile",
+      message_text: "Age: 28\nPhone: +919876543210",
+      variables,
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.next_node).toBe("confirm");
+    expect(result.variables.gender).toBe("female");
+    expect(result.variables.profile_education).toBe("BSc");
+    expect(result.variables.profile_profession).toBe("Teacher");
+    expect(result.variables.profile_age).toBe("28");
+    expect(result.variables.profile_phone).toBe("+919876543210");
+  });
+
+  it("structured Capture accepts a plain response when exactly one field remains", () => {
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "profile",
+      message_text: "+919876543210",
+      variables: {
+        gender: "male",
+        profile_name: "Ahmed Ali",
+        profile_age: "29",
+        profile_height: "178 cm",
+        profile_education: "MBA",
+        profile_profession: "Accountant",
+        profile_location: "Dubai",
+        profile_about: "Looking for a partner",
+      },
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.next_node).toBe("confirm");
+    expect(result.variables.profile_phone).toBe("+919876543210");
+  });
+
+  it("structured Capture remains deterministic for question-like profile text", () => {
+    const result = executeFlow(structuredFlow, makeInput({
+      current_node: "profile",
+      message_text: "About: Who am I looking for? Someone kind and respectful.",
+      variables: {},
+    }));
+
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.next_node).toBe("profile");
+    expect(result.variables.profile_about).toContain("Who am I looking for?");
+  });
+
+  it("gender menu stores the selected gender before structured Capture", () => {
+    const result = executeFlow(structuredFlow, makeInput({ current_node: "gender", message_text: "Groom" }));
+    expect(result.kind).toBe("reply");
+    if (result.kind !== "reply") return;
+    expect(result.next_node).toBe("profile");
+    expect(result.variables.gender).toBe("male");
+  });
+
+  it("Nikah Kerala template uses the four-node structured registration path with all existing fields", () => {
+    const template = VERTICAL_TEMPLATES.find((item) => item.id === "matrimony-service");
+    expect(template).toBeDefined();
+    if (!template) return;
+
+    const intro = template.flow_json.nodes.find((node) => node.id === "mat_profile_intro");
+    const gender = template.flow_json.nodes.find((node) => node.id === "mat_p_gender");
+    const profile = template.flow_json.nodes.find((node) => node.id === "mat_p_profile");
+
+    expect(intro?.type === "message" && intro.next).toBe("mat_p_gender");
+    expect(gender?.type).toBe("menu");
+    if (gender?.type === "menu") {
+      expect(gender.data.deterministic).toBe(true);
+      expect(gender.data.options.every((option) => option.store_as === "gender" && option.next === "mat_p_profile")).toBe(true);
+    }
+    expect(profile?.type).toBe("capture");
+    if (profile?.type === "capture" && profile.data.mode === "structured") {
+      expect(profile.next).toBe("mat_p_confirm");
+      expect(profile.data.fields.map((field) => field.variable)).toEqual([
+        "profile_name",
+        "profile_age",
+        "profile_height",
+        "profile_education",
+        "profile_profession",
+        "profile_location",
+        "profile_religion",
+        "profile_about",
+        "profile_phone",
+      ]);
+    }
+    expect(template.flow_json.nodes.some((node) => node.id === "mat_p_name")).toBe(false);
+  });
+
+  it("builder serialization preserves menu store_as and structured Capture fields", () => {
+    const flow = canvasToFlowJson(
+      [
+        {
+          id: "gender",
+          type: "menu",
+          position: { x: 0, y: 0 },
+          data: {
+            text: "Registering as:",
+            deterministic: true,
+            options: [{ label: "Bride", value: "female", store_as: "gender" }],
+          },
+        },
+        {
+          id: "profile",
+          type: "capture",
+          position: { x: 0, y: 100 },
+          data: {
+            mode: "structured",
+            prompt: "Profile",
+            fields: [{ label: "Education", variable: "profile_education", required: true }],
+          },
+        },
+      ],
+      [
+        { id: "edge", source: "gender", sourceHandle: "opt-0", target: "profile" },
+      ]
+    );
+
+    const menu = flow.nodes.find((node) => node.id === "gender") as any;
+    const capture = flow.nodes.find((node) => node.id === "profile") as any;
+    expect(menu.data.options[0]).toMatchObject({ store_as: "gender", next: "profile" });
+    expect(menu.data.deterministic).toBe(true);
+    expect(capture.data.fields[0]).toMatchObject({ variable: "profile_education", required: true });
   });
 });

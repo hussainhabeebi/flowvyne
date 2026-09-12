@@ -24,7 +24,19 @@ export type MenuNode = {
     text: string;
     options: MenuOption[];
     fallback_text?: string; // sent when no option matched
+    deterministic?: boolean; // if true, never route invalid input to AI
   };
+};
+
+export type CaptureValidation = "email" | "phone" | "number" | "none";
+
+export type StructuredCaptureField = {
+  label: string;
+  variable: string;
+  required?: boolean;
+  validation?: CaptureValidation;
+  aliases?: string[];
+  error_text?: string;
 };
 
 export type CaptureNode = {
@@ -33,8 +45,17 @@ export type CaptureNode = {
   data: {
     prompt: string;
     variable: string;
-    validation?: "email" | "phone" | "number" | "none";
+    validation?: CaptureValidation;
     error_text?: string; // sent on validation failure
+    mode?: "single";
+    fields?: never;
+  } | {
+    prompt: string;
+    mode: "structured";
+    fields: StructuredCaptureField[];
+    variable?: never;
+    validation?: never;
+    error_text?: never;
   };
   next: string;
 };

@@ -227,45 +227,124 @@ function CaptureFields({
   data,
   update,
 }: {
-  data: { prompt: string; variable: string; validation?: string; error_text?: string };
+  data: {
+    prompt: string;
+    mode?: "single" | "structured";
+    variable?: string;
+    validation?: string;
+    error_text?: string;
+    fields?: StructuredField[];
+  };
   update: (p: Record<string, unknown>) => void;
 }) {
+  const isStructured = data.mode === "structured";
+  const fields = data.fields ?? [];
+
+  const updateField = (index: number, patch: Partial<StructuredField>) =>
+    update({ fields: fields.map((field, i) => (i === index ? { ...field, ...patch } : field)) });
+
+  const addField = () =>
+    update({
+      fields: [
+        ...fields,
+        { label: "", variable: "", required: true, validation: "none", aliases: [] },
+      ],
+    });
+
   return (
     <div className="space-y-4">
       <div>
-        <Label>Prompt (optional — shown before waiting for input)</Label>
-        <Textarea value={data.prompt ?? ""} onChange={(v) => update({ prompt: v })} />
-      </div>
-      <div>
-        <Label>Variable name (no braces)</Label>
-        <Input
-          value={data.variable ?? ""}
-          onChange={(v) => update({ variable: v.replace(/[^a-z0-9_]/gi, "_") })}
-          placeholder="e.g. email"
-        />
-      </div>
-      <div>
-        <Label>Validation</Label>
+        <Label>Capture mode</Label>
         <select
-          value={data.validation ?? "none"}
-          onChange={(e) => update({ validation: e.target.value })}
+          value={isStructured ? "structured" : "single"}
+          onChange={(e) => {
+            if (e.target.value === "structured") {
+              update({ mode: "structured", fields: fields.length ? fields : [], variable: undefined, validation: undefined, error_text: undefined });
+            } else {
+              update({ mode: "single", variable: data.variable ?? "value", validation: "none", fields: undefined });
+            }
+          }}
           className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
         >
-          <option value="none">None</option>
-          <option value="email">Email</option>
-          <option value="phone">Phone</option>
-          <option value="number">Number</option>
+          <option value="single">Single value</option>
+          <option value="structured">Structured form</option>
         </select>
       </div>
       <div>
-        <Label>Validation error text</Label>
-        <Input
-          value={data.error_text ?? ""}
-          onChange={(v) => update({ error_text: v })}
-          placeholder="Optional custom error message"
-        />
+        <Label>Prompt (optional — shown before waiting for input)</Label>
+        <Textarea value={data.prompt ?? ""} onChange={(v) => update({ prompt: v })} rows={isStructured ? 8 : 3} />
       </div>
+      {!isStructured ? (
+        <>
+          <div>
+            <Label>Variable name (no braces)</Label>
+            <Input
+              value={data.variable ?? ""}
+              onChange={(v) => update({ variable: cleanVariable(v) })}
+              placeholder="e.g. email"
+            />
+          </div>
+          <div>
+            <Label>Validation</Label>
+            <ValidationSelect value={data.validation} onChange={(validation) => update({ validation })} />
+          </div>
+          <div>
+            <Label>Validation error text</Label>
+            <Input value={data.error_text ?? ""} onChange={(v) => update({ error_text: v })} placeholder="Optional custom error message" />
+          </div>
+        </>
+      ) : (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <Label>Structured fields</Label>
+            <button onClick={addField} className="text-xs text-brand-500 hover:text-brand-700">+ Add field</button>
+          </div>
+          <div className="space-y-3">
+            {fields.map((field, index) => (
+              <div key={index} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">Field {index + 1}</span>
+                  <button onClick={() => update({ fields: fields.filter((_, i) => i !== index) })} className="text-xs text-red-400 hover:text-red-600">Remove</button>
+                </div>
+                <Input value={field.label} onChange={(label) => updateField(index, { label })} placeholder="Label shown to customer" />
+                <Input value={field.variable} onChange={(variable) => updateField(index, { variable: cleanVariable(variable) })} placeholder="Variable name" />
+                <Input value={(field.aliases ?? []).join(", ")} onChange={(value) => updateField(index, { aliases: value.split(",").map((alias) => alias.trim()).filter(Boolean) })} placeholder="Aliases, comma separated" />
+                <div className="grid grid-cols-2 gap-2 items-center">
+                  <ValidationSelect value={field.validation} onChange={(validation) => updateField(index, { validation })} />
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <input type="checkbox" checked={field.required !== false} onChange={(e) => updateField(index, { required: e.target.checked })} />
+                    Required
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+type StructuredField = {
+  label: string;
+  variable: string;
+  required?: boolean;
+  validation?: string;
+  aliases?: string[];
+};
+
+function cleanVariable(value: string): string {
+  return value.replace(/[^a-z0-9_]/gi, "_");
+}
+
+function ValidationSelect({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
+  return (
+    <select value={value ?? "none"} onChange={(e) => onChange(e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40">
+      <option value="none">None</option>
+      <option value="email">Email</option>
+      <option value="phone">Phone</option>
+      <option value="number">Number</option>
+    </select>
   );
 }
 

@@ -31,9 +31,10 @@ export function canvasToFlowJson(nodes: Node[], edges: Edge[]): FlowJSON {
 
     if (n.type === "menu") {
       const options = (n.data.options ?? []).map(
-        (opt: { label: string; value: string }, i: number) => ({
+        (opt: { label: string; value: string; store_as?: string }, i: number) => ({
           label: opt.label,
           value: opt.value,
+          ...(opt.store_as ? { store_as: opt.store_as } : {}),
           next: edges.find((e) => e.source === n.id && e.sourceHandle === `opt-${i}`)?.target ?? "",
         })
       );

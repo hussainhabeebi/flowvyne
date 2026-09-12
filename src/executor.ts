@@ -3,8 +3,8 @@ import type {
   FlowNode,
   ExecuteInput,
   ExecuteOutput,
-  MenuOption,
   ConditionOperator,
+  StructuredCaptureField,
 } from "./types";
 
 // ── Variable interpolation ────────────────────────────────────────────────
@@ -47,6 +47,68 @@ const VALIDATORS: Record<string, RegExp> = {
 function isValid(value: string, rule: string | undefined): boolean {
   if (!rule || rule === "none") return true;
   return VALIDATORS[rule]?.test(value) ?? true;
+}
+
+function normalizeLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\(optional\)/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function fieldLabels(field: StructuredCaptureField): string[] {
+  return [field.label, ...(field.aliases ?? [])].map(normalizeLabel);
+}
+
+function pendingStructuredFields(
+  fields: StructuredCaptureField[],
+  variables: Record<string, string>
+): StructuredCaptureField[] {
+  return fields.filter((field) => {
+    const value = variables[field.variable]?.trim() ?? "";
+    return (field.required !== false && !value) || (value !== "" && !isValid(value, field.validation));
+  });
+}
+
+function parseStructuredResponse(
+  message: string,
+  fields: StructuredCaptureField[],
+  variables: Record<string, string>
+): Record<string, string> {
+  const pending = pendingStructuredFields(fields, variables);
+  const parsed: Record<string, string> = {};
+  let activeField: StructuredCaptureField | undefined;
+
+  for (const rawLine of message.split(/\r?\n/)) {
+    const labelMatch = rawLine.match(/^\s*([^:]{1,100})\s*:\s*(.*)$/);
+    if (labelMatch) {
+      const normalized = normalizeLabel(labelMatch[1]);
+      const matched = fields.find((field) => fieldLabels(field).includes(normalized));
+      if (matched) {
+        activeField = matched;
+        parsed[matched.variable] = labelMatch[2].trim();
+        continue;
+      }
+    }
+
+    if (activeField && rawLine.trim()) {
+      parsed[activeField.variable] = `${parsed[activeField.variable]}\n${rawLine.trim()}`.trim();
+    }
+  }
+
+  // A plain answer is unambiguous when only one required/invalid field remains.
+  if (Object.keys(parsed).length === 0 && pending.length === 1) {
+    parsed[pending[0].variable] = message.trim();
+  }
+
+  return parsed;
+}
+
+function missingFieldsPrompt(fields: StructuredCaptureField[]): string {
+  const lines = fields.map((field) => `${field.label}:`);
+  return `Please provide or correct only these details:\n\n${lines.join("\n")}`;
 }
 
 // ── Node lookup ───────────────────────────────────────────────────────────
@@ -155,6 +217,40 @@ export function executeFlow(
           reply_text: interpolate(node.data.prompt, variables),
           next_node: nodeId,
           variables,
+        };
+      }
+
+      if (node.data.mode === "structured") {
+        const parsed = parseStructuredResponse(trimmed, node.data.fields, variables);
+        const updatedVars = { ...variables };
+
+        for (const field of node.data.fields) {
+          const value = parsed[field.variable]?.trim();
+          if (value && isValid(value, field.validation)) {
+            updatedVars[field.variable] = value;
+          }
+        }
+
+        const pending = pendingStructuredFields(node.data.fields, updatedVars);
+        if (pending.length > 0) {
+          return {
+            kind: "reply",
+            reply_text: missingFieldsPrompt(pending),
+            next_node: nodeId,
+            variables: updatedVars,
+          };
+        }
+
+        for (const field of node.data.fields) {
+          if (field.required === false && updatedVars[field.variable] === undefined) {
+            updatedVars[field.variable] = "";
+          }
+        }
+
+        return {
+          kind: "reply",
+          next_node: node.next,
+          variables: updatedVars,
         };
       }
 

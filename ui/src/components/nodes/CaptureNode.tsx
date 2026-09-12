@@ -2,7 +2,7 @@ import { Handle, Position } from "reactflow";
 import { TextCursorInput } from "lucide-react";
 
 type Props = {
-  data: { prompt: string; variable: string; validation?: string };
+  data: { prompt: string; mode?: string; variable?: string; validation?: string; fields?: { variable: string }[] };
   selected: boolean;
 };
 
@@ -22,9 +22,16 @@ export function CaptureNode({ data, selected }: Props) {
         {data.prompt || <span className="italic text-slate-400">No prompt set</span>}
       </p>
       <div className="flex gap-2 flex-wrap">
-        <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-mono">
-          {`{{${data.variable || "var"}}}`}
-        </span>
+        {data.mode === "structured" ? (
+          <>
+            <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">Structured</span>
+            <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{data.fields?.length ?? 0} fields</span>
+          </>
+        ) : (
+          <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-mono">
+            {`{{${data.variable || "var"}}}`}
+          </span>
+        )}
         {data.validation && data.validation !== "none" && (
           <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
             {data.validation}

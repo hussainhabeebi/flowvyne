@@ -98,6 +98,10 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
       }
     }
 
+    if (!flowJson) {
+      return c.json(await aiOrFallback(c.env, input, null));
+    }
+
     // 2. Execute the flow (reset means start from beginning, not current_node)
     const execInput = isReset ? { ...input, current_node: null } : input;
     const result = executeFlow(flowJson, execInput);
@@ -113,7 +117,7 @@ execute.post("/", zValidator("json", ExecuteSchema), async (c) => {
       (result as { next_node?: string | null }).next_node === body.current_node
     ) {
       const stuckNode = flowJson.nodes.find((n: FlowNode) => n.id === body.current_node);
-      if (stuckNode?.type === "menu") {
+      if (stuckNode?.type === "menu" && !stuckNode.data.deterministic) {
         const intent = await detectIntent(c.env, input.message_text);
         console.log(`[fv] stuck menu → intent=${intent}`);
         if (intent !== "flow") {

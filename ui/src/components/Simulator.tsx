@@ -186,6 +186,24 @@ function localSimulate(
   const interpolate = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_: string, k: string) => variables[k] ?? `{{${k}}}`);
 
   if (node.type === "message") {
+    const nextNode = flow.nodes.find((n: any) => n.id === node.next) as any;
+    if (nextNode?.type === "menu") {
+      return {
+        kind: "reply",
+        reply_text: `${interpolate(node.data.text)}\n\n${interpolate(nextNode.data.text)}`,
+        reply_buttons: nextNode.data.options,
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+    if (nextNode?.type === "capture") {
+      return {
+        kind: "reply",
+        reply_text: `${interpolate(node.data.text)}\n\n${interpolate(nextNode.data.prompt)}`,
+        next_node: nextNode.id,
+        variables,
+      };
+    }
     return { kind: "reply", reply_text: interpolate(node.data.text), next_node: node.next, variables };
   }
   if (node.type === "menu") {
@@ -194,14 +212,92 @@ function localSimulate(
       (o: { value: string; label: string; next: string }, i: number) =>
         o.value.toLowerCase() === msg || o.label.toLowerCase() === msg || String(i + 1) === msg
     );
-    if (matched) return { kind: "reply", next_node: matched.next, variables };
+    if (matched) {
+      const updatedVariables = matched.store_as
+        ? { ...variables, [matched.store_as]: matched.value }
+        : variables;
+      return { kind: "reply", next_node: matched.next, variables: updatedVariables };
+    }
     return { kind: "reply", reply_text: interpolate(node.data.text), reply_buttons: node.data.options, next_node: nodeId, variables };
   }
   if (node.type === "capture") {
+    if (!message.trim()) {
+      return { kind: "reply", reply_text: interpolate(node.data.prompt), next_node: nodeId, variables };
+    }
+    if (node.data.mode === "structured") {
+      const parsed = parseStructured(message, node.data.fields, variables);
+      const updatedVariables = { ...variables };
+      for (const field of node.data.fields) {
+        const value = parsed[field.variable]?.trim();
+        if (value && isValidCapture(value, field.validation)) updatedVariables[field.variable] = value;
+      }
+      const pending = pendingFields(node.data.fields, updatedVariables);
+      if (pending.length) {
+        return {
+          kind: "reply",
+          reply_text: `Please provide or correct only these details:\n\n${pending.map((field: any) => `${field.label}:`).join("\n")}`,
+          next_node: nodeId,
+          variables: updatedVariables,
+        };
+      }
+      for (const field of node.data.fields) {
+        if (field.required === false && updatedVariables[field.variable] === undefined) {
+          updatedVariables[field.variable] = "";
+        }
+      }
+      return { kind: "reply", next_node: node.next, variables: updatedVariables };
+    }
     return { kind: "reply", next_node: node.next, variables: { ...variables, [node.data.variable]: message.trim() } };
   }
   if (node.type === "end") {
     return { kind: "end", variables };
   }
   return { kind: "reply", next_node: null, variables };
+}
+
+const CAPTURE_VALIDATORS: Record<string, RegExp> = {
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  phone: /^\+?[0-9\s\-().]{7,20}$/,
+  number: /^-?\d+(\.\d+)?$/,
+};
+
+function isValidCapture(value: string, validation?: string): boolean {
+  if (!validation || validation === "none") return true;
+  return CAPTURE_VALIDATORS[validation]?.test(value) ?? true;
+}
+
+function normalizedLabel(value: string): string {
+  return value.toLowerCase().replace(/\(optional\)/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function pendingFields(fields: any[], variables: Record<string, string>) {
+  return fields.filter((field) => {
+    const value = variables[field.variable]?.trim() ?? "";
+    return (field.required !== false && !value) || (value !== "" && !isValidCapture(value, field.validation));
+  });
+}
+
+function parseStructured(message: string, fields: any[], variables: Record<string, string>): Record<string, string> {
+  const parsed: Record<string, string> = {};
+  let activeField: any;
+  for (const rawLine of message.split(/\r?\n/)) {
+    const match = rawLine.match(/^\s*([^:]{1,100})\s*:\s*(.*)$/);
+    if (match) {
+      const label = normalizedLabel(match[1]);
+      const field = fields.find((candidate) =>
+        [candidate.label, ...(candidate.aliases ?? [])].map(normalizedLabel).includes(label)
+      );
+      if (field) {
+        activeField = field;
+        parsed[field.variable] = match[2].trim();
+        continue;
+      }
+    }
+    if (activeField && rawLine.trim()) {
+      parsed[activeField.variable] = `${parsed[activeField.variable]}\n${rawLine.trim()}`.trim();
+    }
+  }
+  const pending = pendingFields(fields, variables);
+  if (!Object.keys(parsed).length && pending.length === 1) parsed[pending[0].variable] = message.trim();
+  return parsed;
 }
