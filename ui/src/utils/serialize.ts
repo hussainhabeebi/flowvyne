@@ -31,16 +31,17 @@ export function canvasToFlowJson(nodes: Node[], edges: Edge[]): FlowJSON {
 
     if (n.type === "menu") {
       const options = (n.data.options ?? []).map(
-        (opt: { label: string; value: string }, i: number) => ({
+        (opt: { label: string; value: string; store_as?: string }, i: number) => ({
           label: opt.label,
           value: opt.value,
+          ...(opt.store_as ? { store_as: opt.store_as } : {}),
           next: edges.find((e) => e.source === n.id && e.sourceHandle === `opt-${i}`)?.target ?? "",
         })
       );
       return { ...base, data: { ...n.data, options } };
     }
 
-    if (n.type === "capture") {
+    if (n.type === "capture" || n.type === "form") {
       const next = edges.find((e) => e.source === n.id)?.target ?? "";
       return { ...base, next };
     }
@@ -90,7 +91,7 @@ export function flowJsonToCanvas(flowJson: FlowJSON): { nodes: Node[]; edges: Ed
       });
     }
 
-    if (type === "capture" && n.next) {
+    if ((type === "capture" || type === "form") && n.next) {
       edges.push({ id: `e-${id}`, source: id, target: n.next as string, type: "smoothstep", animated: true });
     }
 

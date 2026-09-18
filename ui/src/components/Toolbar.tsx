@@ -1,12 +1,13 @@
-import { MessageSquare, List, TextCursorInput, GitBranch, CircleStop, Save, Play } from "lucide-react";
+import { MessageSquare, List, TextCursorInput, GitBranch, CircleStop, Save, Play, ClipboardList } from "lucide-react";
 import { useFlowStore } from "../store/flowStore";
 
-type NodeType = "message" | "menu" | "capture" | "condition" | "end";
+type NodeType = "message" | "menu" | "capture" | "form" | "condition" | "end";
 
 const NODE_DEFS: { type: NodeType; label: string; icon: React.ReactNode; color: string }[] = [
   { type: "message", label: "Message", icon: <MessageSquare size={15} />, color: "bg-brand-500" },
   { type: "menu", label: "Menu", icon: <List size={15} />, color: "bg-purple-500" },
   { type: "capture", label: "Capture", icon: <TextCursorInput size={15} />, color: "bg-emerald-500" },
+  { type: "form", label: "Form", icon: <ClipboardList size={15} />, color: "bg-cyan-500" },
   { type: "condition", label: "Condition", icon: <GitBranch size={15} />, color: "bg-amber-500" },
   { type: "end", label: "End", icon: <CircleStop size={15} />, color: "bg-rose-500" },
 ];
@@ -15,6 +16,13 @@ const DEFAULT_DATA: Record<NodeType, object> = {
   message: { text: "" },
   menu: { text: "", options: [] },
   capture: { prompt: "", variable: "value", validation: "none" },
+  form: {
+    title: "Customer details",
+    description: "Please answer a few quick questions.",
+    fields: [{ id: "name", label: "Your name", variable: "customer_name", type: "text", required: true }],
+    success_text: "Thank you, {{customer_name}}. Your details have been submitted.",
+    sheet_sync: { enabled: false, webhook_url: "", sheet_name: "Flowvyne Responses" },
+  },
   condition: { variable: "", operator: "eq", value: "" },
   end: {},
 };

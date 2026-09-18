@@ -26,6 +26,7 @@ export function PropertyPanel() {
         {node.type === "message" && <MessageFields data={node.data} update={update} />}
         {node.type === "menu" && <MenuFields data={node.data} update={update} />}
         {node.type === "capture" && <CaptureFields data={node.data} update={update} />}
+        {node.type === "form" && <FormFields data={node.data} update={update} />}
         {node.type === "condition" && <ConditionFields data={node.data} update={update} />}
         {node.type === "end" && <p className="text-sm text-slate-500">End node has no settings.</p>}
       </div>
@@ -227,43 +228,209 @@ function CaptureFields({
   data,
   update,
 }: {
-  data: { prompt: string; variable: string; validation?: string; error_text?: string };
+  data: {
+    prompt: string;
+    mode?: "single" | "structured";
+    variable?: string;
+    validation?: string;
+    error_text?: string;
+    fields?: StructuredField[];
+  };
   update: (p: Record<string, unknown>) => void;
 }) {
+  const isStructured = data.mode === "structured";
+  const fields = data.fields ?? [];
+
+  const updateField = (index: number, patch: Partial<StructuredField>) =>
+    update({ fields: fields.map((field, i) => (i === index ? { ...field, ...patch } : field)) });
+
+  const addField = () =>
+    update({
+      fields: [
+        ...fields,
+        { label: "", variable: "", required: true, validation: "none", aliases: [] },
+      ],
+    });
+
   return (
     <div className="space-y-4">
       <div>
-        <Label>Prompt (optional — shown before waiting for input)</Label>
-        <Textarea value={data.prompt ?? ""} onChange={(v) => update({ prompt: v })} />
-      </div>
-      <div>
-        <Label>Variable name (no braces)</Label>
-        <Input
-          value={data.variable ?? ""}
-          onChange={(v) => update({ variable: v.replace(/[^a-z0-9_]/gi, "_") })}
-          placeholder="e.g. email"
-        />
-      </div>
-      <div>
-        <Label>Validation</Label>
+        <Label>Capture mode</Label>
         <select
-          value={data.validation ?? "none"}
-          onChange={(e) => update({ validation: e.target.value })}
+          value={isStructured ? "structured" : "single"}
+          onChange={(e) => {
+            if (e.target.value === "structured") {
+              update({ mode: "structured", fields: fields.length ? fields : [], variable: undefined, validation: undefined, error_text: undefined });
+            } else {
+              update({ mode: "single", variable: data.variable ?? "value", validation: "none", fields: undefined });
+            }
+          }}
           className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
         >
-          <option value="none">None</option>
-          <option value="email">Email</option>
-          <option value="phone">Phone</option>
-          <option value="number">Number</option>
+          <option value="single">Single value</option>
+          <option value="structured">Structured form</option>
         </select>
       </div>
       <div>
-        <Label>Validation error text</Label>
-        <Input
-          value={data.error_text ?? ""}
-          onChange={(v) => update({ error_text: v })}
-          placeholder="Optional custom error message"
-        />
+        <Label>Prompt (optional — shown before waiting for input)</Label>
+        <Textarea value={data.prompt ?? ""} onChange={(v) => update({ prompt: v })} rows={isStructured ? 8 : 3} />
+      </div>
+      {!isStructured ? (
+        <>
+          <div>
+            <Label>Variable name (no braces)</Label>
+            <Input
+              value={data.variable ?? ""}
+              onChange={(v) => update({ variable: cleanVariable(v) })}
+              placeholder="e.g. email"
+            />
+          </div>
+          <div>
+            <Label>Validation</Label>
+            <ValidationSelect value={data.validation} onChange={(validation) => update({ validation })} />
+          </div>
+          <div>
+            <Label>Validation error text</Label>
+            <Input value={data.error_text ?? ""} onChange={(v) => update({ error_text: v })} placeholder="Optional custom error message" />
+          </div>
+        </>
+      ) : (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <Label>Structured fields</Label>
+            <button onClick={addField} className="text-xs text-brand-500 hover:text-brand-700">+ Add field</button>
+          </div>
+          <div className="space-y-3">
+            {fields.map((field, index) => (
+              <div key={index} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">Field {index + 1}</span>
+                  <button onClick={() => update({ fields: fields.filter((_, i) => i !== index) })} className="text-xs text-red-400 hover:text-red-600">Remove</button>
+                </div>
+                <Input value={field.label} onChange={(label) => updateField(index, { label })} placeholder="Label shown to customer" />
+                <Input value={field.variable} onChange={(variable) => updateField(index, { variable: cleanVariable(variable) })} placeholder="Variable name" />
+                <Input value={(field.aliases ?? []).join(", ")} onChange={(value) => updateField(index, { aliases: value.split(",").map((alias) => alias.trim()).filter(Boolean) })} placeholder="Aliases, comma separated" />
+                <div className="grid grid-cols-2 gap-2 items-center">
+                  <ValidationSelect value={field.validation} onChange={(validation) => updateField(index, { validation })} />
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <input type="checkbox" checked={field.required !== false} onChange={(e) => updateField(index, { required: e.target.checked })} />
+                    Required
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type StructuredField = {
+  label: string;
+  variable: string;
+  required?: boolean;
+  validation?: string;
+  aliases?: string[];
+};
+
+function cleanVariable(value: string): string {
+  return value.replace(/[^a-z0-9_]/gi, "_");
+}
+
+function ValidationSelect({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
+  return (
+    <select value={value ?? "none"} onChange={(e) => onChange(e.target.value)} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500/40">
+      <option value="none">None</option>
+      <option value="email">Email</option>
+      <option value="phone">Phone</option>
+      <option value="number">Number</option>
+    </select>
+  );
+}
+
+type FormField = {
+  id: string;
+  label: string;
+  variable: string;
+  type: "text" | "email" | "phone" | "number" | "select" | "radio" | "checkbox" | "date" | "textarea";
+  required?: boolean;
+  placeholder?: string;
+  options?: string[];
+};
+
+function FormFields({
+  data,
+  update,
+}: {
+  data: {
+    title?: string;
+    description?: string;
+    fields?: FormField[];
+    success_text?: string;
+    sheet_sync?: { enabled?: boolean; webhook_url?: string; sheet_name?: string };
+  };
+  update: (p: Record<string, unknown>) => void;
+}) {
+  const fields = data.fields ?? [];
+  const sync = data.sheet_sync ?? { enabled: false, webhook_url: "", sheet_name: "Flowvyne Responses" };
+  const updateField = (index: number, patch: Partial<FormField>) =>
+    update({ fields: fields.map((field, i) => i === index ? { ...field, ...patch } : field) });
+  const removeField = (index: number) => update({ fields: fields.filter((_, i) => i !== index) });
+  const addField = () => update({
+    fields: [...fields, {
+      id: crypto.randomUUID().slice(0, 8),
+      label: "New field",
+      variable: `field_${fields.length + 1}`,
+      type: "text",
+      required: true,
+    }],
+  });
+
+  return (
+    <div className="space-y-4">
+      <div><Label>Form title</Label><Input value={data.title ?? ""} onChange={(v) => update({ title: v })} /></div>
+      <div><Label>Description</Label><Textarea value={data.description ?? ""} onChange={(v) => update({ description: v })} /></div>
+      <div>
+        <Label>Fields</Label>
+        <div className="space-y-3">
+          {fields.map((field, index) => (
+            <div key={field.id} className="border border-slate-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500">Field {index + 1}</span>
+                <button onClick={() => removeField(index)} className="text-red-400 hover:text-red-600"><X size={14} /></button>
+              </div>
+              <Input value={field.label} onChange={(v) => updateField(index, { label: v })} placeholder="Question / label" />
+              <Input value={field.variable} onChange={(v) => updateField(index, { variable: v.replace(/[^a-z0-9_]/gi, "_") })} placeholder="variable_name" />
+              <select value={field.type} onChange={(e) => updateField(index, { type: e.target.value as FormField["type"] })} className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2">
+                <option value="text">Text</option><option value="textarea">Long text</option>
+                <option value="email">Email</option><option value="phone">Mobile</option>
+                <option value="number">Number</option><option value="date">Date</option>
+                <option value="select">Dropdown / choice</option><option value="radio">Radio / single choice</option>
+                <option value="checkbox">Checkbox / multiple choice</option>
+              </select>
+              {["select", "radio", "checkbox"].includes(field.type) && (
+                <Input value={(field.options ?? []).join(", ")} onChange={(v) => updateField(index, { options: v.split(",").map((item) => item.trim()).filter(Boolean) })} placeholder="Option 1, Option 2" />
+              )}
+              <Input value={field.placeholder ?? ""} onChange={(v) => updateField(index, { placeholder: v })} placeholder="Help text (optional)" />
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input type="checkbox" checked={field.required !== false} onChange={(e) => updateField(index, { required: e.target.checked })} /> Required
+              </label>
+            </div>
+          ))}
+        </div>
+        <button onClick={addField} className="mt-2 text-xs text-brand-500 hover:text-brand-700 font-medium">+ Add field</button>
+      </div>
+      <div><Label>Success message</Label><Textarea value={data.success_text ?? ""} onChange={(v) => update({ success_text: v })} /></div>
+      <div className="border-t border-slate-200 pt-4 space-y-3">
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <input type="checkbox" checked={Boolean(sync.enabled)} onChange={(e) => update({ sheet_sync: { ...sync, enabled: e.target.checked } })} /> Sync to Google Sheets
+        </label>
+        {sync.enabled && <>
+          <div><Label>Apps Script webhook URL</Label><Input value={sync.webhook_url ?? ""} onChange={(v) => update({ sheet_sync: { ...sync, webhook_url: v } })} placeholder="https://script.google.com/macros/s/.../exec" /></div>
+          <div><Label>Sheet tab name</Label><Input value={sync.sheet_name ?? ""} onChange={(v) => update({ sheet_sync: { ...sync, sheet_name: v } })} placeholder="Flowvyne Responses" /></div>
+          <p className="text-xs text-slate-400">Submissions are always saved in Flowvyne first, then synced to the sheet.</p>
+        </>}
       </div>
     </div>
   );

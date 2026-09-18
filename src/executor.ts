@@ -3,8 +3,8 @@ import type {
   FlowNode,
   ExecuteInput,
   ExecuteOutput,
-  MenuOption,
   ConditionOperator,
+  StructuredCaptureField,
 } from "./types";
 
 // ── Variable interpolation ────────────────────────────────────────────────
@@ -49,10 +49,181 @@ function isValid(value: string, rule: string | undefined): boolean {
   return VALIDATORS[rule]?.test(value) ?? true;
 }
 
+function normalizeLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\(optional\)/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function fieldLabels(field: StructuredCaptureField): string[] {
+  return [field.label, ...(field.aliases ?? [])].map(normalizeLabel);
+}
+
+function pendingStructuredFields(
+  fields: StructuredCaptureField[],
+  variables: Record<string, string>
+): StructuredCaptureField[] {
+  return fields.filter((field) => {
+    const value = variables[field.variable]?.trim() ?? "";
+    return (field.required !== false && !value) || (value !== "" && !isValid(value, field.validation));
+  });
+}
+
+function parseStructuredResponse(
+  message: string,
+  fields: StructuredCaptureField[],
+  variables: Record<string, string>
+): Record<string, string> {
+  const pending = pendingStructuredFields(fields, variables);
+  const parsed: Record<string, string> = {};
+  let activeField: StructuredCaptureField | undefined;
+
+  for (const rawLine of message.split(/\r?\n/)) {
+    const labelMatch = rawLine.match(/^\s*([^:]{1,100})\s*:\s*(.*)$/);
+    if (labelMatch) {
+      const normalized = normalizeLabel(labelMatch[1]);
+      const matched = fields.find((field) => fieldLabels(field).includes(normalized));
+      if (matched) {
+        activeField = matched;
+        parsed[matched.variable] = labelMatch[2].trim();
+        continue;
+      }
+    }
+
+    if (activeField && rawLine.trim()) {
+      parsed[activeField.variable] = `${parsed[activeField.variable]}\n${rawLine.trim()}`.trim();
+    }
+  }
+
+  // A plain answer is unambiguous when only one required/invalid field remains.
+  if (Object.keys(parsed).length === 0 && pending.length === 1) {
+    parsed[pending[0].variable] = message.trim();
+  }
+
+  return parsed;
+}
+
+function missingFieldsPrompt(fields: StructuredCaptureField[]): string {
+  const lines = fields.map((field) => `${field.label}:`);
+  return `Please provide or correct only these details:\n\n${lines.join("\n")}`;
+}
+
+function formFieldPrompt(label: string, required: boolean, placeholder?: string, options?: string[]): string {
+  const optionText = options?.length ? `\n${options.map((option, i) => `${i + 1}. ${option}`).join("\n")}` : "";
+  const hint = placeholder ? `\n${placeholder}` : "";
+  const skip = required ? "" : " (reply skip to leave blank)";
+  return `${label}${skip}${optionText}${hint}`;
+}
+
 // ── Node lookup ───────────────────────────────────────────────────────────
 
 function findNode(flow: FlowJSON, id: string): FlowNode | undefined {
   return flow.nodes.find((n) => n.id === id);
+}
+
+const MAX_PASSIVE_MESSAGE_HOPS = 10;
+
+function executeMessageChain(
+  flow: FlowJSON,
+  startNode: Extract<FlowNode, { type: "message" }>,
+  variables: Record<string, string>
+): ExecuteOutput {
+  const texts: string[] = [];
+  const visited = new Set<string>();
+  let imageUrl: string | undefined;
+  let node = startNode;
+
+  for (let hops = 0; hops < MAX_PASSIVE_MESSAGE_HOPS; hops += 1) {
+    if (visited.has(node.id)) {
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: node.id,
+        variables,
+      };
+    }
+
+    visited.add(node.id);
+    texts.push(interpolate(node.data.text, variables));
+    if (node.data.image_url) imageUrl = node.data.image_url;
+
+    if (!node.next) {
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: null,
+        variables,
+      };
+    }
+
+    const nextNode = findNode(flow, node.next);
+
+    if (nextNode?.type === "message") {
+      node = nextNode;
+      continue;
+    }
+
+    if (nextNode?.type === "menu") {
+      texts.push(interpolate(nextNode.data.text, variables));
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        reply_buttons: nextNode.data.options,
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+
+    if (nextNode?.type === "capture") {
+      texts.push(interpolate(nextNode.data.prompt, variables));
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+
+    if (nextNode?.type === "form") {
+      const first = nextNode.data.fields[0];
+      const intro = [nextNode.data.title, nextNode.data.description].filter(Boolean).join("\n");
+      const formPrompt = first
+        ? [intro, formFieldPrompt(first.label, first.required !== false, first.placeholder, first.options)]
+            .filter(Boolean).join("\n\n")
+        : intro;
+      if (formPrompt) texts.push(formPrompt);
+      return {
+        kind: "reply",
+        reply_text: texts.join("\n\n"),
+        ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+        next_node: nextNode.id,
+        variables,
+      };
+    }
+
+    return {
+      kind: "reply",
+      reply_text: texts.join("\n\n"),
+      ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+      next_node: node.next,
+      variables,
+    };
+  }
+
+  return {
+    kind: "reply",
+    reply_text: texts.join("\n\n"),
+    ...(imageUrl ? { reply_image_url: imageUrl } : {}),
+    next_node: node.id,
+    variables,
+  };
 }
 
 // ── Main executor ─────────────────────────────────────────────────────────
@@ -74,43 +245,7 @@ export function executeFlow(
 
   switch (node.type) {
     case "message": {
-      const text = interpolate(node.data.text, variables);
-      const imageProps = node.data.image_url ? { reply_image_url: node.data.image_url } : {};
-
-      // Auto-advance: peek at the next node. If it's a Menu or Capture, combine outputs
-      // so the user sees prompt + options in the same message (no extra user turn required).
-      if (node.next) {
-        const nextNode = findNode(flow, node.next);
-
-        if (nextNode?.type === "menu") {
-          return {
-            kind: "reply",
-            reply_text: text + "\n\n" + interpolate(nextNode.data.text, variables),
-            ...imageProps,
-            reply_buttons: nextNode.data.options,
-            next_node: nextNode.id, // wait on the menu node
-            variables,
-          };
-        }
-
-        if (nextNode?.type === "capture") {
-          return {
-            kind: "reply",
-            reply_text: text + "\n\n" + interpolate(nextNode.data.prompt, variables),
-            ...imageProps,
-            next_node: nextNode.id, // wait on the capture node
-            variables,
-          };
-        }
-      }
-
-      return {
-        kind: "reply",
-        reply_text: text,
-        ...imageProps,
-        next_node: node.next,
-        variables,
-      };
+      return executeMessageChain(flow, node, variables);
     }
 
     case "menu": {
@@ -124,15 +259,17 @@ export function executeFlow(
       );
 
       if (matched) {
-        // User picked a valid option — advance without sending another message
+        // User picked a valid option. Render the destination immediately with
+        // empty input so menu values are never consumed as capture answers.
         const updatedVars = matched.store_as
           ? { ...variables, [matched.store_as]: matched.value }
           : variables;
-        return {
-          kind: "reply",
-          next_node: matched.next,
+        return executeFlow(flow, {
+          ...input,
+          message_text: "",
+          current_node: matched.next,
           variables: updatedVars,
-        };
+        });
       }
 
       // No match — re-present the menu
@@ -158,15 +295,50 @@ export function executeFlow(
         };
       }
 
+      if (node.data.mode === "structured") {
+        const parsed = parseStructuredResponse(trimmed, node.data.fields, variables);
+        const updatedVars = { ...variables };
+
+        for (const field of node.data.fields) {
+          const value = parsed[field.variable]?.trim();
+          if (value && isValid(value, field.validation)) {
+            updatedVars[field.variable] = value;
+          }
+        }
+
+        const pending = pendingStructuredFields(node.data.fields, updatedVars);
+        if (pending.length > 0) {
+          return {
+            kind: "reply",
+            reply_text: missingFieldsPrompt(pending),
+            next_node: nodeId,
+            variables: updatedVars,
+          };
+        }
+
+        for (const field of node.data.fields) {
+          if (field.required === false && updatedVars[field.variable] === undefined) {
+            updatedVars[field.variable] = "";
+          }
+        }
+
+        return {
+          kind: "reply",
+          next_node: node.next,
+          variables: updatedVars,
+        };
+      }
+
       // If the user is asking a side question rather than answering the prompt,
       // route to AI so the question gets answered while the capture node stays active.
       const isQuestion =
         trimmed.includes("?") ||
         /^(what|when|where|who|why|how|can|could|do|does|did|is|are|was|were|will|would)\b/i.test(trimmed);
       if (isQuestion) {
+        // At this point mode !== "structured" (already returned above), so prompt is always set
         return {
           kind: "ai_fallback",
-          prompt_context: buildAIContext(input),
+          prompt_context: buildAIContext(input, node.data.prompt),
         };
       }
 
@@ -190,6 +362,95 @@ export function executeFlow(
       };
     }
 
+    case "form": {
+      const indexKey = `__fv_form_${node.id}_index`;
+      const currentIndex = Math.max(0, Number.parseInt(variables[indexKey] ?? "0", 10) || 0);
+      const field = node.data.fields[currentIndex];
+
+      if (!field) {
+        const cleaned = { ...variables };
+        delete cleaned[indexKey];
+        return {
+          kind: "reply",
+          reply_text: interpolate(node.data.success_text ?? "Thank you. Your form has been submitted.", cleaned),
+          next_node: node.next,
+          variables: cleaned,
+          form_submission: {
+            form_node_id: node.id,
+            form_title: node.data.title,
+            values: Object.fromEntries(node.data.fields.map((item) => [item.variable, cleaned[item.variable] ?? ""])),
+            sheet_sync: node.data.sheet_sync,
+          },
+        };
+      }
+
+      const trimmed = message_text.trim();
+      if (!trimmed) {
+        const intro = currentIndex === 0
+          ? [node.data.title, node.data.description].filter(Boolean).join("\n")
+          : "";
+        return {
+          kind: "reply",
+          reply_text: [intro, formFieldPrompt(field.label, field.required !== false, field.placeholder, field.options)]
+            .filter(Boolean).join("\n\n"),
+          next_node: nodeId,
+          variables,
+        };
+      }
+
+      const skipped = field.required === false && trimmed.toLowerCase() === "skip";
+      let value = skipped ? "" : trimmed;
+      if ((field.type === "select" || field.type === "radio") && field.options?.length && !skipped) {
+        const option = field.options.find((item, i) =>
+          item.toLowerCase() === trimmed.toLowerCase() || String(i + 1) === trimmed
+        );
+        if (!option) {
+          return {
+            kind: "reply",
+            reply_text: `Please choose one of the available options.\n\n${formFieldPrompt(field.label, true, field.placeholder, field.options)}`,
+            next_node: nodeId,
+            variables,
+          };
+        }
+        value = option;
+      }
+
+      const validation = ["email", "phone", "number"].includes(field.type) ? field.type : "none";
+      if (!skipped && !isValid(value, validation)) {
+        return {
+          kind: "reply",
+          reply_text: `That doesn't look like a valid ${field.type}. Please try again.`,
+          next_node: nodeId,
+          variables,
+        };
+      }
+
+      const updated = { ...variables, [field.variable]: value, [indexKey]: String(currentIndex + 1) };
+      const nextField = node.data.fields[currentIndex + 1];
+      if (nextField) {
+        return {
+          kind: "reply",
+          reply_text: formFieldPrompt(nextField.label, nextField.required !== false, nextField.placeholder, nextField.options),
+          next_node: nodeId,
+          variables: updated,
+        };
+      }
+
+      delete updated[indexKey];
+      return {
+        kind: "reply",
+        reply_text: interpolate(node.data.success_text ?? "Thank you. Your form has been submitted.", updated),
+        next_node: node.next,
+        variables: updated,
+        form_submission: {
+          form_node_id: node.id,
+          form_title: node.data.title,
+          values: Object.fromEntries(node.data.fields.map((item) => [item.variable, updated[item.variable] ?? ""])),
+          sheet_sync: node.data.sheet_sync,
+        },
+      };
+    }
+
     case "condition": {
       const varValue = variables[node.data.variable] ?? "";
       const branch = evaluate(varValue, node.data.operator, node.data.value)
@@ -208,15 +469,25 @@ export function executeFlow(
 
 // ── AI context builder ────────────────────────────────────────────────────
 
-function buildAIContext(input: ExecuteInput): string {
+// stepPrompt: the current flow node's question/prompt (prevents AI from re-asking it)
+function buildAIContext(input: ExecuteInput, stepPrompt?: string): string {
   const lines: string[] = [
     `You are a helpful assistant. Respond naturally to the user's message.`,
   ];
 
-  if (Object.keys(input.variables).length > 0) {
+  if (stepPrompt) {
     lines.push(
-      `Known context: ${JSON.stringify(input.variables, null, 2)}`
+      `IMPORTANT: The customer is mid-flow. They were just asked: "${stepPrompt}". ` +
+      `Answer their side question concisely, then gently redirect them back. ` +
+      `Do NOT re-ask that same question — the flow will handle it.`
     );
+  }
+
+  const publicVars = Object.fromEntries(
+    Object.entries(input.variables).filter(([k]) => !k.startsWith("__fv_"))
+  );
+  if (Object.keys(publicVars).length > 0) {
+    lines.push(`Known context: ${JSON.stringify(publicVars, null, 2)}`);
   }
 
   if (input.recent_history?.length) {

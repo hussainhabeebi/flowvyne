@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import type { Env, FlowJSON, FlowRow, FlowVersionRow } from "../types";
+import type { Env, FlowRow, FlowVersionRow } from "../types";
 import { randomId } from "../utils";
 
 const flows = new Hono<{ Bindings: Env }>();

@@ -465,89 +465,73 @@ export const VERTICAL_TEMPLATES: Template[] = [
           type: "menu" as const,
           data: {
             text: "You are registering as a:",
+            deterministic: true,
             options: [
-              { label: "Groom (Male)", value: "male", store_as: "gender", next: "mat_p_name" },
-              { label: "Bride (Female)", value: "female", store_as: "gender", next: "mat_p_name" },
+              { label: "Groom (Male)", value: "male", store_as: "gender", next: "mat_p_profile" },
+              { label: "Bride (Female)", value: "female", store_as: "gender", next: "mat_p_profile" },
             ],
           },
         },
         {
-          id: "mat_p_name",
-          type: "capture" as const,
-          data: { prompt: "Your full name?", variable: "profile_name", validation: "none" as const },
-          next: "mat_p_age",
-        },
-        {
-          id: "mat_p_age",
+          id: "mat_p_profile",
           type: "capture" as const,
           data: {
-            prompt: "Your age?",
-            variable: "profile_age",
-            validation: "number" as const,
-            error_text: "Please enter a valid age (numbers only).",
-          },
-          next: "mat_p_height",
-        },
-        {
-          id: "mat_p_height",
-          type: "capture" as const,
-          data: { prompt: "Your height? (e.g. 5'7\" or 170 cm)", variable: "profile_height", validation: "none" as const },
-          next: "mat_p_edu",
-        },
-        {
-          id: "mat_p_edu",
-          type: "capture" as const,
-          data: { prompt: "Your highest education qualification?", variable: "profile_education", validation: "none" as const },
-          next: "mat_p_job",
-        },
-        {
-          id: "mat_p_job",
-          type: "capture" as const,
-          data: { prompt: "Your profession / job?", variable: "profile_profession", validation: "none" as const },
-          next: "mat_p_location",
-        },
-        {
-          id: "mat_p_location",
-          type: "capture" as const,
-          data: { prompt: "Your city / location?", variable: "profile_location", validation: "none" as const },
-          next: "mat_p_religion",
-        },
-        {
-          id: "mat_p_religion",
-          type: "capture" as const,
-          data: {
-            prompt: "Your religion / community / caste? (type *skip* to skip)",
-            variable: "profile_religion",
-            validation: "none" as const,
-          },
-          next: "mat_p_about",
-        },
-        {
-          id: "mat_p_about",
-          type: "capture" as const,
-          data: {
-            prompt: "Tell us a little about yourself and what you're looking for in a partner:",
-            variable: "profile_about",
-            validation: "none" as const,
-          },
-          next: "mat_p_phone",
-        },
-        {
-          id: "mat_p_phone",
-          type: "capture" as const,
-          data: {
-            prompt: "Your WhatsApp / contact number (for matches to reach you)?",
-            variable: "profile_phone",
-            validation: "phone" as const,
-            error_text: "Please enter a valid phone number (e.g. +971501234567).",
+            mode: "structured" as const,
+            prompt: "Please copy, complete, and send this form:\n\nFull Name:\nAge:\nHeight:\nHighest Education / Qualification:\nProfession / Job:\nCity / Location:\nReligion / Community / Caste (optional):\nAbout yourself / what you're looking for:\nWhatsApp / Contact Number:",
+            fields: [
+              { label: "Full Name", variable: "profile_name", required: true, aliases: ["Name"] },
+              { label: "Age", variable: "profile_age", required: true, validation: "number" as const },
+              { label: "Height", variable: "profile_height", required: true },
+              {
+                label: "Highest Education / Qualification",
+                variable: "profile_education",
+                required: true,
+                aliases: ["Education", "Qualification", "Highest Education"],
+              },
+              {
+                label: "Profession / Job",
+                variable: "profile_profession",
+                required: true,
+                aliases: ["Profession", "Job", "Occupation"],
+              },
+              {
+                label: "City / Location",
+                variable: "profile_location",
+                required: true,
+                aliases: ["City", "Location"],
+              },
+              {
+                label: "Religion / Community / Caste",
+                variable: "profile_religion",
+                required: false,
+                aliases: ["Religion", "Community", "Caste"],
+              },
+              {
+                label: "About yourself / what you're looking for",
+                variable: "profile_about",
+                required: true,
+                aliases: ["About", "About yourself", "What you're looking for"],
+              },
+              {
+                label: "WhatsApp / Contact Number",
+                variable: "profile_phone",
+                required: true,
+                validation: "phone" as const,
+                aliases: ["WhatsApp", "Phone", "Contact", "Contact Number", "WhatsApp Number"],
+              },
+            ],
           },
           next: "mat_p_confirm",
         },
+        /*
+         * Structured capture above replaces the former one-node-per-field chain.
+         * Stable variable names are retained for downstream integrations.
+         */
         {
           id: "mat_p_confirm",
           type: "message" as const,
           data: {
-            text: "🎉 Thank you, {{profile_name}}!\n\nYour profile has been submitted and will be reviewed within 24 hours.\n\n📋 *Your Profile*\nGender: {{gender}}\nAge: {{profile_age}}\nHeight: {{profile_height}}\nEducation: {{profile_education}}\nProfession: {{profile_profession}}\nLocation: {{profile_location}}\n\nWe'll notify you once your profile is live! 💍",
+            text: "🎉 Thank you, {{profile_name}}!\n\nYour profile has been submitted and will be reviewed within 24 hours.\n\n📋 *Your Profile*\nGender: {{gender}}\nAge: {{profile_age}}\nHeight: {{profile_height}}\nEducation: {{profile_education}}\nProfession: {{profile_profession}}\nLocation: {{profile_location}}\nReligion / Community / Caste: {{profile_religion}}\nAbout: {{profile_about}}\nWhatsApp / Contact: {{profile_phone}}\n\nWe'll notify you once your profile is live! 💍",
           },
           next: null,
         },
