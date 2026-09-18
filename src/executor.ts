@@ -335,9 +335,10 @@ export function executeFlow(
         trimmed.includes("?") ||
         /^(what|when|where|who|why|how|can|could|do|does|did|is|are|was|were|will|would)\b/i.test(trimmed);
       if (isQuestion) {
+        // At this point mode !== "structured" (already returned above), so prompt is always set
         return {
           kind: "ai_fallback",
-          prompt_context: buildAIContext(input),
+          prompt_context: buildAIContext(input, node.data.prompt),
         };
       }
 
@@ -468,15 +469,25 @@ export function executeFlow(
 
 // ── AI context builder ────────────────────────────────────────────────────
 
-function buildAIContext(input: ExecuteInput): string {
+// stepPrompt: the current flow node's question/prompt (prevents AI from re-asking it)
+function buildAIContext(input: ExecuteInput, stepPrompt?: string): string {
   const lines: string[] = [
     `You are a helpful assistant. Respond naturally to the user's message.`,
   ];
 
-  if (Object.keys(input.variables).length > 0) {
+  if (stepPrompt) {
     lines.push(
-      `Known context: ${JSON.stringify(input.variables, null, 2)}`
+      `IMPORTANT: The customer is mid-flow. They were just asked: "${stepPrompt}". ` +
+      `Answer their side question concisely, then gently redirect them back. ` +
+      `Do NOT re-ask that same question — the flow will handle it.`
     );
+  }
+
+  const publicVars = Object.fromEntries(
+    Object.entries(input.variables).filter(([k]) => !k.startsWith("__fv_"))
+  );
+  if (Object.keys(publicVars).length > 0) {
+    lines.push(`Known context: ${JSON.stringify(publicVars, null, 2)}`);
   }
 
   if (input.recent_history?.length) {
